@@ -2,31 +2,39 @@ import requests
 from bs4 import BeautifulSoup
 
 def get_bovada_odds():
-    print("🟡 Scraping Bovada MLB page...")
+    print("Scraping Bovada site for MLB odds...")
+
     url = "https://www.bovada.lv/sports/baseball/mlb"
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; EVTracker/1.0)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
     }
 
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        script_tags = soup.find_all('script')
-        for tag in script_tags:
-            if '__INITIAL_STATE__' in tag.text:
-                json_str = tag.text.split('__INITIAL_STATE__ = ')[1].split(';</script>')[0]
-                print("✅ Found embedded JSON data (truncated)")
-                # (Optional: Parse JSON to extract bets here)
-                return []  # Return dummy value for now
-
-        print("⚠️ Could not find embedded betting data.")
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"❌ Request failed: {e}")
         return []
 
-    except requests.exceptions.RequestException as e:
-        print(f"❌ HTTP request failed: {e}")
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+    soup = BeautifulSoup(response.text, 'html.parser')
+    games = soup.select('.market-container')
 
-    return []
+    results = []
+
+    for game in games:
+        teams = game.select('.competitor-name')
+        odds = game.select('.bet-price')
+
+        if len(teams) == 2 and len(odds) >= 2:
+            team1 = teams[0].text.strip()
+            team2 = teams[1].text.strip()
+            odds1 = odds[0].text.strip()
+            odds2 = odds[1].text.strip()
+
+            results.append({
+                "matchup": f"{team1} vs {team2}",
+                "odds": [odds1, odds2]
+            })
+
+    print(f"✅ Scraped {len(results)} MLB games.")
+    return results
