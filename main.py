@@ -5,10 +5,21 @@ from telegram_alert_bot import send_telegram_message
 def main():
     print("Fetching Bovada odds...")
     odds = get_bovada_odds()
-    bets = find_ev_bets(odds)
-    for bet in bets:
+
+    if not odds:
+        print("No odds found or scraping failed.")
+        return
+
+    print("Finding EV bets...")
+    ev_bets = find_ev_bets(odds)
+
+    if not ev_bets:
+        print("No +EV bets found.")
+        return
+
+    print(f"✅ Found {len(ev_bets)} +EV bets. Sending to Telegram...")
+    for bet in ev_bets:
         send_telegram_message(bet)
-        print(f"Sent alert for: {bet['match']} — {bet['bet']}")
 
 if __name__ == "__main__":
     main()
