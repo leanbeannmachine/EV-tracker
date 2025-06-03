@@ -2,9 +2,10 @@ import requests
 from bs4 import BeautifulSoup
 
 def get_bovada_odds():
-    print("Scraping Bovada site for MLB odds...")
+    print("Fetching Bovada odds...")
+    print("⚽ Scraping Bovada site for Soccer odds...")
 
-    url = "https://www.bovada.lv/sports/baseball/mlb"
+    url = "https://www.bovada.lv/sports/soccer"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
     }
@@ -36,5 +37,5 @@ def get_bovada_odds():
                 "odds": [odds1, odds2]
             })
 
-    print(f"✅ Scraped {len(results)} MLB games.")
+    print(f"✅ Scraped {len(results)} Soccer games.")
     return results
