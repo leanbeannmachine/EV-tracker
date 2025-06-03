@@ -5,7 +5,13 @@ def get_bovada_odds():
 
     url = "https://www.bovada.lv/services/sports/event/v2/events/A/description"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.133 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.bovada.lv/",
+        "Origin": "https://www.bovada.lv",
+        "Connection": "keep-alive"
     }
 
     try:
