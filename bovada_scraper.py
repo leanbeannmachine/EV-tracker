@@ -1,37 +1,31 @@
 import requests
+from bs4 import BeautifulSoup
 
 def get_bovada_odds():
-    print("🟡 Connecting to Bovada API...")
-    url = "https://www.bovada.lv/services/sports/event/v2/us/en"
+    print("🟡 Scraping Bovada MLB page...")
+    url = "https://www.bovada.lv/sports/baseball/mlb"
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; EVTracker/1.0)"
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()  # Raise an error for bad status codes
-        data = response.json()
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
 
-        mlb_games = []
+        script_tags = soup.find_all('script')
+        for tag in script_tags:
+            if '__INITIAL_STATE__' in tag.text:
+                json_str = tag.text.split('__INITIAL_STATE__ = ')[1].split(';</script>')[0]
+                print("✅ Found embedded JSON data (truncated)")
+                # (Optional: Parse JSON to extract bets here)
+                return []  # Return dummy value for now
 
-        # Loop through each category (sport)
-        for category in data:
-            events = category.get("events", [])
-            for event in events:
-                sport_desc = event.get("sport", {}).get("description", "").lower()
-                league_desc = event.get("league", {}).get("description", "").lower()
-
-                # Check if MLB or Major League Baseball in league description
-                if "mlb" in league_desc or "major league baseball" in league_desc:
-                    mlb_games.append(event)
-
-        print(f"✅ Successfully scraped {len(mlb_games)} MLB games.")
-        return mlb_games
+        print("⚠️ Could not find embedded betting data.")
+        return []
 
     except requests.exceptions.RequestException as e:
         print(f"❌ HTTP request failed: {e}")
-    except ValueError as e:
-        print(f"❌ JSON decoding failed: {e}")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
 
