@@ -1,13 +1,11 @@
 import requests
-from bs4 import BeautifulSoup
 
 def get_bovada_odds():
-    print("Fetching Bovada odds...")
-    print("⚽ Scraping Bovada site for Soccer odds...")
+    print("⚽ Fetching Bovada Soccer odds via JSON...")
 
-    url = "https://www.bovada.lv/sports/soccer"
+    url = "https://www.bovada.lv/services/sports/event/v2/events/A/description/soccer"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0"
     }
 
     try:
@@ -17,25 +15,31 @@ def get_bovada_odds():
         print(f"❌ Request failed: {e}")
         return []
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    games = soup.select('.market-container')
+    try:
+        data = response.json()
+    except Exception as e:
+        print(f"❌ Failed to parse Bovada JSON: {e}")
+        return []
 
+    events = data[0].get("events", [])
     results = []
 
-    for game in games:
-        teams = game.select('.competitor-name')
-        odds = game.select('.bet-price')
+    for event in events:
+        try:
+            teams = event["competitors"]
+            team1 = teams[0]["name"]
+            team2 = teams[1]["name"]
 
-        if len(teams) == 2 and len(odds) >= 2:
-            team1 = teams[0].text.strip()
-            team2 = teams[1].text.strip()
-            odds1 = odds[0].text.strip()
-            odds2 = odds[1].text.strip()
+            outcomes = event["displayGroups"][0]["markets"][0]["outcomes"]
+            odds = [o["price"]["american"] for o in outcomes]
 
             results.append({
                 "matchup": f"{team1} vs {team2}",
-                "odds": [odds1, odds2]
+                "odds": odds
             })
+        except Exception as e:
+            print(f"⚠️ Error parsing event: {e}")
+            continue
 
-    print(f"✅ Scraped {len(results)} Soccer games.")
+    print(f"✅ Scraped {len(results)} soccer games.")
     return results
