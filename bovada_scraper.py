@@ -3,7 +3,7 @@ import requests
 def get_bovada_odds():
     print("Fetching Bovada odds...")
 
-    url = "https://www.bovada.lv/services/sports/event/v2/events"
+    url = "https://www.bovada.lv/services/sports/event/v2/events/A/description"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
@@ -27,9 +27,7 @@ def get_bovada_odds():
         print("⚠️ Bovada returned an empty data set.")
         return []
 
-    # You can now start parsing sports_data safely
     print("✅ Successfully fetched Bovada odds.")
-    # Example placeholder for parsing logic
     events = []
     for group in sports_data:
         for event in group.get('events', []):
