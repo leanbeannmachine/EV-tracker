@@ -1,7 +1,7 @@
 import requests
 
 def get_bovada_odds():
-    print("⚽ Fetching Bovada Soccer odds via JSON...")
+    print("Scraping Bovada site for Soccer odds...")
 
     url = "https://www.bovada.lv/services/sports/event/v2/events/A/description/soccer"
     headers = {
@@ -11,35 +11,28 @@ def get_bovada_odds():
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
+        data = response.json()
     except Exception as e:
         print(f"❌ Request failed: {e}")
         return []
 
-    try:
-        data = response.json()
-    except Exception as e:
-        print(f"❌ Failed to parse Bovada JSON: {e}")
-        return []
-
-    events = data[0].get("events", [])
     results = []
 
-    for event in events:
-        try:
-            teams = event["competitors"]
-            team1 = teams[0]["name"]
-            team2 = teams[1]["name"]
-
-            outcomes = event["displayGroups"][0]["markets"][0]["outcomes"]
-            odds = [o["price"]["american"] for o in outcomes]
-
-            results.append({
-                "matchup": f"{team1} vs {team2}",
-                "odds": odds
-            })
-        except Exception as e:
-            print(f"⚠️ Error parsing event: {e}")
-            continue
+    for category in data:
+        for event in category.get("events", []):
+            try:
+                teams = event["description"]
+                markets = event.get("displayGroups", [])[0].get("markets", [])
+                if markets:
+                    outcomes = markets[0].get("outcomes", [])
+                    if len(outcomes) >= 2:
+                        odds = [outcome["price"]["american"] for outcome in outcomes[:2]]
+                        results.append({
+                            "matchup": teams,
+                            "odds": odds
+                        })
+            except Exception as parse_error:
+                print(f"⚠️ Error parsing event: {parse_error}")
 
     print(f"✅ Scraped {len(results)} soccer games.")
     return results
