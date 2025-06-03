@@ -1,0 +1,38 @@
+import os
+import requests
+
+# Replace these with your actual Telegram token and chat ID, or set in .env
+TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-
+UQanEQBXpt6otjcI"
+CHAT_ID = "964091254"
+
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    resp = requests.post(url, data=payload)
+    if resp.status_code != 200:
+        print("Failed to send message:", resp.text)
+
+def get_mock_bets():
+    # Simulated bet data — replace this with real scraper or API calls later
+    return [
+        {"sport": "Soccer", "bet": "Over 2.5 Goals", "odds": "+150", "ev": 22},
+        {"sport": "Basketball", "bet": "Team A to win", "odds": "-110", "ev": 15},
+    ]
+
+def format_bet_message(bet):
+    return f"⚽ *{bet['sport']} Bet Alert:* {bet['bet']} at {bet['odds']} is +{bet['ev']}% EV!"
+
+def main():
+    bets = get_mock_bets()
+    for bet in bets:
+        msg = format_bet_message(bet)
+        send_telegram_message(msg)
+        print("Sent:", msg)
+
+if __name__ == "__main__":
+    main()
