@@ -1,9 +1,9 @@
 import os
 import requests
 
-BOT_TOKEN = 7607490683:AAH5LZ3hHnTimx35du-
-UQanEQBXpt6otjcI
-CHAT_ID = 964091254
+BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-
+UQanEQBXpt6otjcI"
+CHAT_ID = "964091254"
 
 def send_telegram_message(bet):
     message = (
