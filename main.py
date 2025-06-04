@@ -124,5 +124,18 @@ def analyze_and_send_bets():
         bot.send_message(chat_id=CHAT_ID, text="No good value bets available at this time.")
 
 
+import traceback
+import sys
+
 if __name__ == "__main__":
-    analyze_and_send_bets()
+    try:
+        analyze_and_send_bets()
+    except Exception as e:
+        print("ERROR:", e, file=sys.stderr)
+        traceback.print_exc()
+        # Also send error message to Telegram so you get notified
+        try:
+            bot.send_message(chat_id=CHAT_ID, text=f"🚨 Bot error:\n{e}")
+        except:
+            pass
+        sys.exit(1)
