@@ -1,142 +1,90 @@
 import requests
-import datetime
-import time
+from datetime import datetime
 from telegram import Bot
-from telegram.error import TelegramError
 
-# Your keys and chat ID here
-SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+# === CONFIGURATION ===
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
+ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
+SPORT = "baseball_mlb"
+REGION = "us"
+MARKETS = "h2h,spreads,totals,player_props"
 
+# === SETUP ===
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
+today_iso = datetime.utcnow().date().isoformat()
+base_url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
 
-# Helper function to fetch fixtures with odds and markets
-def fetch_fixtures():
-    # Fetching fixtures for the next 3 days
-    now = datetime.datetime.utcnow()
-    three_days_later = now + datetime.timedelta(days=3)
-    url = (
-        f"https://api.sportmonks.com/v3/football/fixtures"
-        f"?api_token={SPORTMONKS_API_KEY}"
-        f"&include=odds.bookmakers.markets,localteam,visitorteam"
-        f"&filter[starts_between]={now.isoformat()},{three_days_later.isoformat()}"
-        f"&sort=starting_at"
-        f"&per_page=50"
-    )
-    try:
-        resp = requests.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get('data', [])
-    except Exception as e:
-        print(f"Error fetching fixtures: {e}")
-        return []
+# === STEP 1: FETCH TODAY’S GAMES ===
+params = {
+    "regions": REGION,
+    "markets": MARKETS,
+    "oddsFormat": "american",
+    "dateFormat": "iso",
+    "apiKey": ODDS_API_KEY
+}
+response = requests.get(base_url, params=params)
 
-# Function to fetch recent player stats for props (simplified placeholder)
-def fetch_player_props(team_id):
-    # In real implementation, you'd pull player stats and analyze last 5-10 games
-    # Here, we simulate standout players randomly or based on some criteria
-    # Returning a dummy list for example
-    standout_players = [
-        {"name": "John Doe", "stat": "2 goals in last 5 games"},
-        {"name": "Jane Smith", "stat": "3 assists in last 7 games"},
-    ]
-    return standout_players
+if response.status_code != 200:
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=f"🚨 OddsAPI Error: {response.status_code}\n{response.text}")
+    exit()
 
-# Analyze odds and assign confidence levels
-def evaluate_bet(odds):
-    american_odds = odds
-    # Simple heuristic: odds between -150 and +150 considered good
-    if -150 <= american_odds <= 150:
-        confidence = "✅ Good bet"
-    elif -200 <= american_odds < -150 or 150 < american_odds <= 200:
-        confidence = "⚠️ Medium risk"
-    else:
-        confidence = "❌ Risky bet"
-    return confidence
+games = response.json()
+sent_count = 0
 
-# Convert decimal to American odds (if needed)
-def decimal_to_american(decimal_odds):
-    if decimal_odds >= 2.0:
-        return int((decimal_odds - 1) * 100)
-    else:
-        return int(-100 / (decimal_odds - 1))
+# === STEP 2: PROCESS EACH GAME ===
+for game in games:
+    # Only include games starting today
+    if not game.get("commence_time", "").startswith(today_iso):
+        continue
 
-def format_match_message(fixture):
-    local_team = fixture['localteam']['data']['name']
-    visitor_team = fixture['visitorteam']['data']['name']
-    start_time = fixture['starting_at']
-    start_time_fmt = datetime.datetime.fromisoformat(start_time[:-1]).strftime('%Y-%m-%d %H:%M UTC')
-    
-    message = f"⚽ *{local_team}* vs *{visitor_team}*\n"
-    message += f"🕒 Starts at: {start_time_fmt}\n\n"
-    
-    # Odds & markets
-    odds_info = []
-    try:
-        odds_data = fixture['odds']['data']
-        for bookmaker in odds_data:
-            name = bookmaker['bookmaker']['data']['name']
-            for market in bookmaker['markets']['data']:
-                # Only process common markets: spreads, totals, moneyline
-                if market['key'] in ['spreads', 'totals', 'h2h']:
-                    for outcome in market['outcomes']:
-                        label = outcome['label']
-                        odds = outcome['price']
-                        american_odds = decimal_to_american(odds)
-                        confidence = evaluate_bet(american_odds)
-                        
-                        # Build detailed reasoning
-                        reasoning = (
-                            f"{confidence} | "
-                            f"Market: {market['key'].capitalize()} | "
-                            f"Pick: {label} | "
-                            f"Odds: {american_odds} | "
-                            f"Bookmaker: {name}"
-                        )
-                        odds_info.append(reasoning)
-    except Exception as e:
-        print(f"Error processing odds: {e}")
-    
-    if not odds_info:
-        message += "⚠️ No odds available at the moment.\n"
-    else:
-        for line in odds_info:
-            # Add emoji based on confidence for better visual cue
-            if "✅" in line:
-                message += f"✅ {line}\n"
-            elif "⚠️" in line:
-                message += f"⚠️ {line}\n"
-            else:
-                message += f"❌ {line}\n"
-    
-    # Player props (simplified)
-    player_props = fetch_player_props(fixture['localteam']['data']['id']) + fetch_player_props(fixture['visitorteam']['data']['id'])
-    if player_props:
-        message += "\n🧍‍♂️ *Player Props Highlights:*\n"
-        for player in player_props:
-            message += f"- {player['name']}: {player['stat']}\n"
-    
-    return message
+    home = game.get("home_team")
+    away = game.get("away_team")
+    commence_time = game.get("commence_time")[:19].replace("T", " ")
 
-def send_telegram_message(text):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="Markdown")
-    except TelegramError as e:
-        print(f"Telegram error: {e}")
+    # Bookmaker odds
+    for book in game.get("bookmakers", []):
+        book_title = book.get("title", "N/A")
 
-def main():
-    print("Fetching fixtures and sending bets...")
-    fixtures = fetch_fixtures()
-    if not fixtures:
-        send_telegram_message("🚨 No good value bets available for the next 3 days. Stay tuned!")
-        return
-    
-    for fixture in fixtures:
-        msg = format_match_message(fixture)
-        send_telegram_message(msg)
-        time.sleep(1)  # To avoid hitting Telegram rate limits
+        msg = f"📊 *MLB Bet Preview*\n🕒 *{commence_time} UTC*\n⚔️ {away} @ {home}\n🏦 Bookmaker: {book_title}\n"
 
-if __name__ == "__main__":
-    main()
+        has_lines = False
+
+        for market in book.get("markets", []):
+            key = market.get("key")
+            outcomes = market.get("outcomes", [])
+
+            if key == "spreads":
+                for o in outcomes:
+                    team = o["name"]
+                    point = o["point"]
+                    odds = o["price"]
+                    msg += f"🟩 Spread - {team}: {point} @ {odds}\n"
+                    has_lines = True
+
+            elif key == "totals":
+                for o in outcomes:
+                    label = "Over" if o["name"] == "Over" else "Under"
+                    point = o["point"]
+                    odds = o["price"]
+                    emoji = "📈" if label == "Over" else "📉"
+                    msg += f"{emoji} {label} {point} runs: {odds}\n"
+                    has_lines = True
+
+            elif key == "player_props":
+                standout_players = [p for p in outcomes if abs(p.get("price", 0)) >= 130]  # Filter only standout odds
+                for p in standout_players:
+                    name = p.get("name")
+                    odds = p.get("price")
+                    risk = "🟢 Good" if abs(odds) <= 150 else "⚠️ Medium"
+                    msg += f"🎯 {name} prop @ {odds} ({risk})\n"
+                    has_lines = True
+
+        if has_lines:
+            msg += "\n📌 Bet smart. Prioritize 🔒 safe value."
+            bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="Markdown")
+            sent_count += 1
+
+# === IF NO GAMES SENT ===
+if sent_count == 0:
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="📭 No standout MLB bets found for today.")
