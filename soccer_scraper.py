@@ -1,8 +1,10 @@
 import requests
 
-def get_soccer_bets(api_key):
-    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
+def get_soccer_bets():
+    api_key = "183b79e95844e2300faa30f9383890b5"
     
+    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
+
     params = {
         "apiKey": api_key,
         "regions": "us",
@@ -18,7 +20,7 @@ def get_soccer_bets(api_key):
         print(f"❌ Request failed: {e}")
         return []
 
-    # ✅ Leagues you want to keep
+    # ✅ Leagues to include
     desired_leagues = [
         "Brisbane Premier League",
         "Queensland Premier League",
