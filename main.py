@@ -69,4 +69,70 @@ def format_bet(game):
     spread_point = markets.get("spreads", {}).get("outcomes", [{}])[0].get("point", "N/A")
 
     over_pt, over_odds = get_total_line("totals", "over")
-    under_pt, under_odds = get_total_line("tot
+    under_pt, under_odds = get_total_line("totals", "under")
+
+    # Reasoning mock logic
+    trend_home = "🔥 4-1 ATS in last 5"
+    trend_away = "❄️ 1-4 in last 5 vs division"
+    lean_team = home_team if random.choice([True, False]) else away_team
+
+    bet_message = f"""
+📊 *MLB Bet Preview*
+🕒 {readable_time}
+⚔️ {away_team} @ {home_team}
+🏦 {bookmaker} Sportsbook
+
+💰 *Moneyline:*
+- {home_team}: {home_ml} ✅
+- {away_team}: {away_ml} ✅
+
+🟩 *Spread:*
+- {home_team} {spread_point}: {home_spread} ✅
+- {away_team} {spread_point}: {away_spread} ✅
+
+📈 *Total:*
+- Over {over_pt}: {over_odds} ⚠️
+- Under {under_pt}: {under_odds} ✅
+
+📊 *Trends:*
+- {home_team}: {trend_home}
+- {away_team}: {trend_away}
+
+🔎 *Lean: {lean_team} +1.5 spread ✅*
+📌 Bet smart. Look for 🔒 low-risk run lines.
+    """.strip()
+
+    return bet_message
+
+def send_bets():
+    try:
+        data = get_mlb_odds()
+        today_games = [g for g in data if is_today(g['commence_time']) and g['id'] not in sent_games]
+
+        if not today_games:
+            print("No valid games found.")
+            return
+
+        sampled = random.sample(today_games, min(10, len(today_games)))
+
+        for game in sampled:
+            try:
+                msg = format_bet(game)
+                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="Markdown")
+                sent_games.add(game['id'])
+                time.sleep(4)
+            except Exception as e:
+                print(f"Error sending bet: {e}")
+                continue
+    except Exception as e:
+        print(f"Main loop error: {e}")
+
+def run_loop():
+    while True:
+        print("🔁 Sending new batch of MLB bets...")
+        send_bets()
+        print("⏳ Pausing for 20 minutes before next batch...")
+        time.sleep(1200)
+
+if __name__ == "__main__":
+    run_loop()
