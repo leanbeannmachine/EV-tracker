@@ -8,9 +8,12 @@ API_KEY = "183b79e95844e2300faa30f9383890b5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 LEAGUES = [
-    "soccer_usa_usl_league_two", "soccer_usa_wpsl", "soccer_usa_uslw_league",
-    "soccer_australia_queensland_premier_league", "soccer_australia_brisbane_premier_league",
-    "soccer_friendly_women", "basketball_wnba"
+    "soccer_argentina_primera_division",
+    "soccer_brazil_campeonato",
+    "soccer_brazil_serie_b",
+    "soccer_chile_campeonato",
+    "soccer_usa_mls",
+    "basketball_wnba"
 ]
 
 # ========== 🧠 HELPERS ==========
