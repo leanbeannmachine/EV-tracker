@@ -4,10 +4,18 @@ from bs4 import BeautifulSoup
 # 🎯 Define the soccer leagues you want to include
 TARGET_LEAGUES = [
     "UEFA U21",
-    "English Premier League",
-    "Major League Soccer",
-    "UEFA Champions League",
     "International - U21",
+    "UEFA Nations League",
+    "Copa America",
+    "CONCACAF Nations League",
+    "Major League Soccer",
+    "Brazil - Serie A",
+    "Argentina - Liga Profesional",
+    "Sweden - Allsvenskan",
+    "Norway - Eliteserien",
+    "Japan - J1 League",
+    "South Korea - K League 1"
+]
 ]
 
 def get_bovada_odds():
