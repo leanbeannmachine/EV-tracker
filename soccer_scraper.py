@@ -9,14 +9,13 @@ BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 CHAT_ID = "964091254"
 # List of soccer leagues to fetch — change or add more IDs from OddsAPI docs
 SOCCER_LEAGUES = [
-    "soccer_epl",        # English Premier League
-    "soccer_uefa_champs_league",
-    "soccer_spain_la_liga",
-    "soccer_italy_serie_a",
-    "soccer_germany_bundesliga",
-    "soccer_france_ligue_one",
-    "soccer_uefa_europa_league",
-    "soccer_uefa_euro_2024_qualifiers",
+soccer-australia-brisbane-premier-league",
+    "soccer-australia-queensland-premier-league",
+    "soccer-usa-usl-league-two",
+    "soccer-usa-usl-w-league",
+    "soccer-usa-wpsl",
+    "soccer-international-friendlies-women",
+    "basketball-wnba"
 ]
 
 def fetch_odds(league_key):
