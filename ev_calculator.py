@@ -1,27 +1,38 @@
-def convert_american_to_decimal(american):
-    if american.startswith('+'):
-        return 1 + (int(american[1:]) / 100)
+def american_to_implied_prob(odds):
+    """Convert American odds to implied probability."""
+    if odds > 0:
+        return 100 / (odds + 100)
     else:
-        return 1 + (100 / abs(int(american)))
+        return -odds / (-odds + 100)
 
-def estimate_prob(decimal_odds):
-    return round(1 / decimal_odds, 2)
+def find_high_probability_bets(scraped_bets, min_prob=0.65):
+    """Filter bets where at least one side has high implied probability."""
+    high_prob_bets = []
 
-def calculate_ev(decimal_odds, win_prob):
-    return round((decimal_odds * win_prob - 1) * 100, 2)
-
-def find_ev_bets(bets):
-    ev_bets = []
-    for bet in bets:
+    for bet in scraped_bets:
         try:
-            dec_odds = convert_american_to_decimal(bet['price'])
-            win_prob = estimate_prob(dec_odds)  # Placeholder, replace with your model later
-            ev = calculate_ev(dec_odds, win_prob)
-            if ev > 0.02:  # Filter only good EV bets
-                bet['decimal'] = dec_odds
-                bet['ev'] = ev
-                bet['win_prob'] = win_prob
-                ev_bets.append(bet)
+            odds1 = int(bet['odds'][0].replace('−', '-').replace('+', ''))
+            odds2 = int(bet['odds'][1].replace('−', '-').replace('+', ''))
         except:
-            continue
-    return ev_bets
+            continue  # Skip malformed odds
+
+        prob1 = american_to_implied_prob(odds1)
+        prob2 = american_to_implied_prob(odds2)
+
+        if prob1 >= min_prob:
+            high_prob_bets.append({
+                'matchup': bet['matchup'],
+                'team': bet['matchup'].split(" vs ")[0],
+                'odds': odds1,
+                'implied_prob': round(prob1 * 100, 2)
+            })
+
+        if prob2 >= min_prob:
+            high_prob_bets.append({
+                'matchup': bet['matchup'],
+                'team': bet['matchup'].split(" vs ")[1],
+                'odds': odds2,
+                'implied_prob': round(prob2 * 100, 2)
+            })
+
+    return high_prob_bets
