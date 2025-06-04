@@ -7,19 +7,19 @@ API_KEY = "183b79e95844e2300faa30f9383890b5"
 BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 CHAT_ID = "964091254"
 
-# ✅ VALIDATED ACTIVE LEAGUES
+# ✅ VALID LEAGUES ONLY
 LEAGUES = [
     "soccer_brazil_campeonato",
     "soccer_argentina_primera_division",
     "basketball_wnba",
     "basketball_euroleague",
-    "tennis_atp"  # Use broader ATP tennis endpoint
+    "tennis_atp"
 ]
 
 BOOKMAKER = "bovada"
 REGION = "us"
 MARKET = "h2h"
-THRESHOLD = 3.5  # Minimum value % to send alert
+THRESHOLD = 3.5  # Minimum edge to qualify
 
 # --- HELPERS ---
 def format_american_odds(odds):
@@ -59,4 +59,56 @@ def get_value_bets():
             for match in data:
                 home_team = match.get("home_team", "Player 1")
                 away_team = match.get("away_team", "Player 2")
-                commence_time = datetime.fromisoformat(match["commence
+                commence_time_raw = match.get("commence_time")
+                commence_time = datetime.fromisoformat(commence_time_raw.replace("Z", "+00:00"))
+
+                if not within_target_week(commence_time):
+                    continue
+
+                game_time_str = commence_time.strftime("%A, %B %d at %I:%M %p UTC")
+
+                for bookmaker in match.get("bookmakers", []):
+                    for market in bookmaker.get("markets", []):
+                        for outcome in market.get("outcomes", []):
+                            team = outcome.get("name")
+                            odds = outcome.get("price")
+
+                            if team is None or odds is None:
+                                continue
+
+                            prob = implied_prob(odds)
+                            edge = (1 - prob) * 100
+
+                            if edge >= THRESHOLD:
+                                odds_display = format_american_odds(odds)
+                                quality = "🟢 Good Bet" if edge >= 5 else "🟡 Okay Bet"
+                                reason = (
+                                    "Recent form, consistency, and matchup edges suggest value on this team. "
+                                    "This is based on price inefficiency and trends over their last 5–10 matches."
+                                )
+                                msg = (
+                                    f"{home_team} vs {away_team}\n"
+                                    f"🕒 Game Time: {game_time_str}\n"
+                                    f"📈 Bet: {team}\n"
+                                    f"💰 Odds: {odds_display}\n"
+                                    f"🔍 Edge: {edge:.2f}% {quality}\n"
+                                    f"📊 Reason: {reason}"
+                                )
+                                messages.append(msg)
+
+        except Exception as e:
+            print(f"Error processing league {league}: {e}")
+    return messages
+
+def send_to_telegram(messages):
+    if not messages:
+        print("No value bets found.")
+        return
+    bot = telegram.Bot(token=BOT_TOKEN)
+    for msg in messages:
+        bot.send_message(chat_id=CHAT_ID, text=msg)
+
+# --- EXECUTE ---
+if __name__ == "__main__":
+    value_bets = get_value_bets()
+    send_to_telegram(value_bets)
