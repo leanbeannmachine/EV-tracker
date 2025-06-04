@@ -55,34 +55,33 @@ def fetch_and_send_bets():
                 try:
                     home_team = match.get("home_team", "Home")
 away_team = match.get("away_team", "Away")
-                    commence_time = datetime.datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
+commence_time = datetime.datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
 
-                    if commence_time < now:
-                        continue  # Skip past games
+if commence_time < now:
+    continue  # Skip past games
 
-                    bookmaker = match["bookmakers"][0]
-                    outcomes = bookmaker["markets"][0]["outcomes"]
+bookmaker = match["bookmakers"][0]
+outcomes = bookmaker["markets"][0]["outcomes"]
 
-                    for outcome in outcomes:
-                        team = outcome["name"]
-                        odds = outcome["price"]
-                        prob = implied_prob(odds)
-                        edge = (1 / prob) - 1
+for outcome in outcomes:
+    team = outcome["name"]
+    odds = outcome["price"]
+    prob = implied_prob(odds)
+    edge = (1 / prob) - 1
 
-                        # Filter only good bets (green zone)
-                        if edge * 100 >= MIN_EDGE:
-                            american_odds = format_american_odds(odds)
-                            edge_percent = edge * 100
+    if edge * 100 >= MIN_EDGE:
+        american_odds = format_american_odds(odds)
+        edge_percent = edge * 100
 
-                            color = "🟢 Good Bet" if edge_percent >= 10 else "🟡 Okay Bet"
-                            reason = "This bet has a positive expected value and is a strong value play." if edge_percent >= 10 else "This bet is okay but not elite."
+        color = "🟢 Good Bet" if edge_percent >= 10 else "🟡 Okay Bet"
+        reason = "This bet has a positive expected value and is a strong value play." if edge_percent >= 10 else "This bet is okay but not elite."
 
-                            messages.append(
-                                f"{home_team} vs {away_team}\n"
-                                f"Bet: {team}\n"
-                                f"Odds: {american_odds} (American)\n"
-                                f"Edge: {edge_percent:.2f}% {color}\n"
-                                f"Reason: {reason}"
+        messages.append(
+            f"{home_team} vs {away_team}\n"
+            f"Bet: {team}\n"
+            f"Odds: {american_odds} (American)\n"
+            f"Edge: {edge_percent:.2f}% {color}\n"
+            f"Reason: {reason}"
                             )
                             print(f"{team} @ {american_odds} ➝ Prob: {prob:.2f}, Edge: {edge:.2f}")
 
