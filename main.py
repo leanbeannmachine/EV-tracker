@@ -43,12 +43,20 @@ def fetch_today_games():
 
 def format_bet(game):
     try:
-        teams = game.get('teams', [])
-        if len(teams) < 2:
-            raise ValueError("Not enough teams info")
+      teams = game.get('teams')
+if not teams or len(teams) < 2:
+    logging.warning(f"Skipping game due to insufficient teams data: {game.get('id', 'unknown id')}")
+    return None
 
-        home_team = game.get('home_team', teams[0])
-        away_team = [team for team in teams if team != home_team][0]
+home_team = game.get('home_team')
+if not home_team:
+    # fallback to first team as home_team if missing
+    home_team = teams[0]
+
+away_team = next((team for team in teams if team != home_team), None)
+if not away_team:
+    logging.warning(f"Skipping game due to unable to identify away team: {game.get('id', 'unknown id')}")
+    return None
 
         commence_time = datetime.fromisoformat(game['commence_time'].rstrip('Z')).astimezone(pytz.timezone('US/Eastern'))
         time_str = commence_time.strftime("%I:%M %p %Z")
