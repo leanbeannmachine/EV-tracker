@@ -3,146 +3,114 @@ import time
 import logging
 from datetime import datetime
 import pytz
-import telegram
 
-# --- CONFIG ---
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"  # Your OddsAPI key here
+# Config - Insert your keys here
+ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = 964091254
-
-# How many bets to send per cycle
-MAX_BETS_PER_CYCLE = 8
-
-# Pause time between cycles (in seconds)
-PAUSE_BETWEEN_CYCLES = 17 * 60  # 17 minutes
-
-# Timezone to display (e.g., US/Eastern)
-LOCAL_TIMEZONE = pytz.timezone("US/Eastern")
-
-# Initialize Telegram Bot
-bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-
-# Track already sent bets to avoid duplicates
-sent_bets = set()
+TELEGRAM_CHAT_ID = "964091254"
 
 logging.basicConfig(level=logging.INFO)
 
-def fetch_today_games():
-    url = f'https://api.the-odds-api.com/v4/sports/baseball_mlb/odds'
-    params = {
-        'apiKey': ODDS_API_KEY,
-        'regions': 'us',
-        'markets': 'h2h,spreads,totals',
-        'dateFormat': 'iso',
-        'oddsFormat': 'american'
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        games = response.json()
-        # Filter only games scheduled for today local time
-        today = datetime.now(LOCAL_TIMEZONE).date()
-        filtered_games = []
-        for game in games:
-            game_time_utc = datetime.fromisoformat(game['commence_time'].replace('Z','+00:00'))
-            game_time_local = game_time_utc.astimezone(LOCAL_TIMEZONE)
-            if game_time_local.date() == today:
-                filtered_games.append(game)
-        return filtered_games
-    except Exception as e:
-        logging.error(f"Error fetching games: {e}")
-        return []
+sent_bets = set()
 
-def format_american_odds(odds):
-    if odds > 0:
-        return f"+{odds}"
-    else:
-        return str(odds)
+def fetch_today_games():
+    url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
+    params = {
+        "apiKey": ODDS_API_KEY,
+        "regions": "us",
+        "markets": "h2h,spreads,totals",
+        "dateFormat": "iso",
+        "oddsFormat": "american"
+    }
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    games = response.json()
+
+    today = datetime.now(pytz.UTC).date()
+    todays_games = [game for game in games if datetime.fromisoformat(game['commence_time'][:-1]).date() == today]
+    return todays_games
 
 def format_bet(game):
     try:
-        home = game.get('home_team', 'Unknown Home')
-        away = game.get('away_team', 'Unknown Away')
-        commence_utc = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00'))
-        commence_local = commence_utc.astimezone(LOCAL_TIMEZONE)
-        start_time_str = commence_local.strftime('%Y-%m-%d %I:%M %p %Z')
+        teams = game.get('teams', [])
+        if len(teams) < 2:
+            raise ValueError("Not enough teams info")
+
+        home_team = game.get('home_team', teams[0])
+        away_team = [team for team in teams if team != home_team][0]
+
+        commence_time = datetime.fromisoformat(game['commence_time'][:-1]).astimezone(pytz.timezone('US/Eastern'))
+        time_str = commence_time.strftime("%I:%M %p %Z")
 
         bookmakers = game.get('bookmakers', [])
         if not bookmakers:
-            return None  # no bookmaker odds, skip
+            return None
 
-        # Use first bookmaker for simplicity
         bookmaker = bookmakers[0]
-        book_name = bookmaker.get('title', 'Unknown Bookmaker')
+        markets = bookmaker.get('markets', [])
+        if not markets:
+            return None
 
-        markets = {m['key']: m for m in bookmaker.get('markets', [])}
+        moneyline_odds = {}
+        spread_odds = {}
+        total_odds = {}
 
-        # Moneyline
-        moneyline_str = "💰 Moneyline:"
-        if 'h2h' in markets:
-            h2h = markets['h2h']['outcomes']
-            ml_away = next((o for o in h2h if o['name'] == away), None)
-            ml_home = next((o for o in h2h if o['name'] == home), None)
-            if ml_away and ml_home:
-                moneyline_str += f"\n- {away}: {format_american_odds(ml_away['price'])} ⚠️"
-                moneyline_str += f"\n- {home}: {format_american_odds(ml_home['price'])} ⚠️"
-            else:
-                moneyline_str += "\n- Odds not available"
-        else:
-            moneyline_str += "\n- Odds not available"
-
-        # Spread
-        spread_str = "🟩 Spread:"
-        if 'spreads' in markets:
-            spreads = markets['spreads']['outcomes']
-            spread_away = next((s for s in spreads if s['name'] == away), None)
-            spread_home = next((s for s in spreads if s['name'] == home), None)
-            if spread_away and spread_home:
-                spread_away_line = markets['spreads']['point']
-                spread_home_line = -spread_away_line
-                spread_str += f"\n- {away} {spread_away_line:+.1f}: {format_american_odds(spread_away['price'])} ⚠️"
-                spread_str += f"\n- {home} {spread_home_line:+.1f}: {format_american_odds(spread_home['price'])} ⚠️"
-            else:
-                spread_str += "\n- Odds not available"
-        else:
-            spread_str += "\n- Odds not available"
-
-        # Totals (Over/Under)
-        total_str = "📈 Total:"
-        if 'totals' in markets:
-            totals = markets['totals']['outcomes']
-            total_point = markets['totals']['point']
-            over = next((t for t in totals if t['name'].lower() == 'over'), None)
-            under = next((t for t in totals if t['name'].lower() == 'under'), None)
-            if over and under:
-                total_str += f"\n- Over {total_point}: {format_american_odds(over['price'])} ⚠️"
-                total_str += f"\n- Under {total_point}: {format_american_odds(under['price'])} ⚠️"
-            else:
-                total_str += "\n- Odds not available"
-        else:
-            total_str += "\n- Odds not available"
-
-        # Dummy trends and lean (for demo, you must replace with real trend logic)
-        trends_str = f"📊 Trends:\n- {away}: 🔥 3-2 ATS in last 5\n- {home}: ❄️ 2-3 ATS in last 5"
-        lean_str = f"🔎 Lean: {home} moneyline ⚠️"
-        advice = "📌 Bet smart. Look for 🔒 low-risk run lines."
+        for market in markets:
+            if market['key'] == 'h2h':
+                for outcome in market['outcomes']:
+                    moneyline_odds[outcome['name']] = outcome['price']
+            elif market['key'] == 'spreads':
+                for outcome in market['outcomes']:
+                    spread_odds[outcome['name']] = outcome.get('point', "N/A")
+            elif market['key'] == 'totals':
+                for outcome in market['outcomes']:
+                    total_odds[outcome['name']] = outcome['price']
 
         msg = (
-            f"📊 MLB Bet Preview\n"
-            f"🕒 {start_time_str}\n"
-            f"⚔️ {away} @ {home}\n"
-            f"🏦 {book_name}\n\n"
-            f"{moneyline_str}\n\n"
-            f"{spread_str}\n\n"
-            f"{total_str}\n\n"
-            f"{trends_str}\n\n"
-            f"{lean_str}\n"
-            f"{advice}"
+            f"📊 *MLB Bet Preview*\n"
+            f"🕒 {time_str}\n"
+            f"⚔️ {away_team} @ {home_team}\n"
+            f"🏦 {bookmaker['title']}\n\n"
+            f"💰 *Moneyline:*\n"
+            f"- {away_team}: {moneyline_odds.get(away_team, 'N/A')}\n"
+            f"- {home_team}: {moneyline_odds.get(home_team, 'N/A')}\n\n"
+            f"🟩 *Spread:*\n"
+            f"- {away_team}: {spread_odds.get(away_team, 'N/A')}\n"
+            f"- {home_team}: {spread_odds.get(home_team, 'N/A')}\n\n"
+            f"📈 *Total:*\n"
+            f"- Over: {total_odds.get('Over', 'N/A')}\n"
+            f"- Under: {total_odds.get('Under', 'N/A')}\n"
         )
         return msg
     except Exception as e:
         logging.error(f"Error formatting bet message: {e}")
         return None
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    try:
+        response = requests.post(url, data=data)
+        response.raise_for_status()
+        logging.info("Message sent successfully")
+    except Exception as e:
+        logging.error(f"Failed to send message: {e}")
+
+def send_bets():
+    games = fetch_today_games()
+    count = 0
+    max_bets = 10
+
+    for game in games:
+        bet_msg = format_bet(game)
+        if bet_msg and bet_msg not in sent_bets:
+            send_telegram_message(bet_msg)
+            sent_bets.add(bet_msg)
+            count += 1
+            if count >= max_bets:
+                break
+
+    logging.info(f"Cycle complete: sent {count} bets.")
 
 def main_loop():
     while True:
