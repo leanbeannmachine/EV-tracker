@@ -35,8 +35,8 @@ def fetch_odds():
 
 def format_bet(game):
     start_time = game['commence_time'].replace("T", " ").replace("Z", " UTC")
-    home = game['home_team']
-    away = [team for team in game['teams'] if team != home][0]
+    home = game.get('home_team', 'HOME')
+away = game.get('away_team', 'AWAY')
     bookmakers = game.get('bookmakers', [])
     if not bookmakers:
         return None
