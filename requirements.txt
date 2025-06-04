@@ -1,3 +1,5 @@
 requests
 beautifulsoup4
 pytz
+requests
+python-telegram-bot==13.15
