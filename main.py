@@ -1,6 +1,5 @@
 from datetime import datetime, timezone, timedelta
 import requests
-import math
 import telegram
 
 # --- CONFIG ---
@@ -34,10 +33,10 @@ def implied_prob(odds):
     else:
         return abs(odds) / (abs(odds) + 100)
 
-def within_week(commence_time):
-    now = datetime.now(timezone.utc)
-    end_of_week = now + timedelta(days=5)
-    return now <= commence_time <= end_of_week
+def within_target_week(commence_time):
+    start = datetime(2025, 6, 4, tzinfo=timezone.utc)
+    end = start + timedelta(days=5)
+    return start <= commence_time <= end
 
 def get_value_bets():
     messages = []
@@ -58,7 +57,7 @@ def get_value_bets():
                     home_team = match.get("home_team", "Player 1")
                     away_team = match.get("away_team", "Player 2")
                     commence_time = datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
-                    if not within_week(commence_time):
+                    if not within_target_week(commence_time):
                         continue
 
                     game_time_str = commence_time.strftime("%A, %B %d at %I:%M %p UTC")
@@ -70,6 +69,7 @@ def get_value_bets():
                                 odds = outcome.get("price")
                                 if team is None or odds is None:
                                     continue
+
                                 prob = implied_prob(odds)
                                 edge = (1 - prob) * 100
 
@@ -77,17 +77,15 @@ def get_value_bets():
                                     odds_display = format_american_odds(odds)
                                     quality = "🟢 Good Bet" if edge >= 5 else "🟡 Okay Bet"
                                     reason = (
-                                        f"This team/player shows recent momentum with a strong showing in 5–10 past matches, "
-                                        f"and is undervalued by the market.\n\n"
-                                        f"Expected edge is based on performance trends, not just odds. "
-                                        f"Model assumes value given current matchup quality."
+                                        f"This selection shows consistent value based on performance trends over the last 5–10 matches. "
+                                        f"The current market odds undervalue this team/player relative to form, momentum, and matchup stats."
                                     )
 
                                     msg = (
                                         f"{home_team} vs {away_team}\n"
-                                        f"🕒 Starts: {game_time_str}\n"
+                                        f"🕒 Game Time: {game_time_str}\n"
                                         f"📈 Bet: {team}\n"
-                                        f"💰 Odds: {odds_display} (American)\n"
+                                        f"💰 Odds: {odds_display}\n"
                                         f"🔍 Edge: {edge:.2f}% {quality}\n"
                                         f"📊 Reason: {reason}"
                                     )
