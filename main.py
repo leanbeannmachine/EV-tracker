@@ -9,7 +9,7 @@ BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 CHAT_ID = 964091254
 
 # Threshold for "good value" edge (percent)
-EDGE_THRESHOLD = 5.0
+EDGE_THRESHOLD = 2.0
 
 # Telegram bot init
 bot = telegram.Bot(token=BOT_TOKEN)
