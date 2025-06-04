@@ -9,7 +9,7 @@ ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 sent_bets = set()
 
@@ -22,13 +22,24 @@ def fetch_today_games():
         "dateFormat": "iso",
         "oddsFormat": "american"
     }
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    games = response.json()
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        games = response.json()
+    except Exception as e:
+        logging.error(f"Error fetching games: {e}")
+        return []
 
-    today = datetime.now(pytz.UTC).date()
-    todays_games = [game for game in games if datetime.fromisoformat(game['commence_time'][:-1]).date() == today]
-    return todays_games
+    today_utc = datetime.now(pytz.UTC).date()
+    filtered_games = []
+    for game in games:
+        try:
+            game_date = datetime.fromisoformat(game['commence_time'].rstrip('Z')).date()
+            if game_date == today_utc:
+                filtered_games.append(game)
+        except Exception as e:
+            logging.warning(f"Skipping game due to date parse error: {e}")
+    return filtered_games
 
 def format_bet(game):
     try:
@@ -39,7 +50,7 @@ def format_bet(game):
         home_team = game.get('home_team', teams[0])
         away_team = [team for team in teams if team != home_team][0]
 
-        commence_time = datetime.fromisoformat(game['commence_time'][:-1]).astimezone(pytz.timezone('US/Eastern'))
+        commence_time = datetime.fromisoformat(game['commence_time'].rstrip('Z')).astimezone(pytz.timezone('US/Eastern'))
         time_str = commence_time.strftime("%I:%M %p %Z")
 
         bookmakers = game.get('bookmakers', [])
@@ -90,11 +101,11 @@ def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=data, timeout=10)
         response.raise_for_status()
-        logging.info("Message sent successfully")
+        logging.info("Telegram message sent")
     except Exception as e:
-        logging.error(f"Failed to send message: {e}")
+        logging.error(f"Failed to send Telegram message: {e}")
 
 def send_bets():
     games = fetch_today_games()
