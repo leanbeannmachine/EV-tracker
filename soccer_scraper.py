@@ -20,21 +20,18 @@ def get_soccer_bets():
         print(f"❌ Request failed: {e}")
         return []
 
-    # ✅ Leagues to include
-    desired_leagues = [
-        "Brisbane Premier League",
-        "Queensland Premier League",
-        "USL League Two",
-        "USL W League",
-        "WPSL",
-        "Friendlies Women",
-        "WNBA"
-    ]
-
-    filtered_bets = []
+    # Log all available leagues and match info
+    leagues = set()
     for match in data:
-        league = match.get("league", "")
-        if any(l.lower() in league.lower() for l in desired_leagues):
-            filtered_bets.append(match)
+        if "league" in match:
+            leagues.add(match["league"])
+        print("––––––––––––––––––––––––")
+        print("🏟 Match:", match.get("teams"))
+        print("📅 Commence Time:", match.get("commence_time"))
+        print("📘 League (if available):", match.get("league", "Unknown"))
 
-    return filtered_bets
+    print(f"\n📋 Unique Leagues Found ({len(leagues)}):")
+    for l in leagues:
+        print(f"  - {l}")
+
+    return data  # Return all data for now, without filtering
