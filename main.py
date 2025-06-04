@@ -1,25 +1,16 @@
 from bovada_scraper import get_bovada_odds
-from ev_calculator import find_ev_bets
+from ev_calculator import find_high_probability_bets
 from telegram_alert_bot import send_telegram_message
 
-def main():
+def run():
     print("Fetching Bovada odds...")
     odds = get_bovada_odds()
-
-    if not odds:
-        print("No odds found or scraping failed.")
-        return
-
-    print("Finding EV bets...")
-    ev_bets = find_ev_bets(odds)
-
-    if not ev_bets:
-        print("No +EV bets found.")
-        return
-
-    print(f"✅ Found {len(ev_bets)} +EV bets. Sending to Telegram...")
-    for bet in ev_bets:
-        send_telegram_message(bet)
+    bets = find_high_probability_bets(odds)
+    if not bets:
+        print("⚠️ No high probability bets found.")
+    for bet in bets:
+        msg = f"🔥 {bet['team']} to win\nMatchup: {bet['matchup']}\nOdds: {bet['odds']}\nImplied Probability: {bet['implied_prob']}%"
+        send_telegram_message(msg)
 
 if __name__ == "__main__":
-    main()
+    run()
