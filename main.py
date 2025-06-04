@@ -15,8 +15,8 @@ LEAGUES = [
     "basketball_wnba"
 ]
 
-MIN_EDGE_PERCENT = 5.0
-MAX_IMPLIED_PROB = 0.75
+MIN_EDGE_PERCENT = 0.0
+MAX_IMPLIED_PROB = 1.0
 
 # === UTILS ===
 def format_american_odds(odds):
