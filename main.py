@@ -8,7 +8,7 @@ TELEGRAM_CHAT_ID = "964091254"
 ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 SPORT = "baseball_mlb"
 REGION = "us"
-MARKETS = "h2h,spreads,totals,player_props"
+MARKETS = "h2h,spreads,totals"
 
 # === SETUP ===
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -42,7 +42,6 @@ for game in games:
     away = game.get("away_team")
     commence_time = game.get("commence_time")[:19].replace("T", " ")
 
-    # Bookmaker odds
     for book in game.get("bookmakers", []):
         book_title = book.get("title", "N/A")
 
@@ -71,13 +70,11 @@ for game in games:
                     msg += f"{emoji} {label} {point} runs: {odds}\n"
                     has_lines = True
 
-            elif key == "player_props":
-                standout_players = [p for p in outcomes if abs(p.get("price", 0)) >= 130]  # Filter only standout odds
-                for p in standout_players:
-                    name = p.get("name")
-                    odds = p.get("price")
-                    risk = "🟢 Good" if abs(odds) <= 150 else "⚠️ Medium"
-                    msg += f"🎯 {name} prop @ {odds} ({risk})\n"
+            elif key == "h2h":
+                for o in outcomes:
+                    team = o["name"]
+                    odds = o["price"]
+                    msg += f"💰 Moneyline - {team}: {odds}\n"
                     has_lines = True
 
         if has_lines:
