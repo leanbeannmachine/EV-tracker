@@ -96,10 +96,8 @@ def fetch_and_send_bets():
 
                         odds = int(odds)
                         prob = implied_probability(odds)
-                        edge = (1 - prob) * 100
-                      
-    # 👉 DEBUG PRINT ­– add this line
-    print(f"{team} @ {odds} ➝ Prob: {prob:.2f}, Edg
+                        edge = (1 - prob) * print(f"{team} @ {odds} ➝ Prob: {prob:.2f}, Edge: {edge:.2f}")
+
 
                         if edge < MIN_EDGE_PERCENT or prob > MAX_IMPLIED_PROB:
                             continue
