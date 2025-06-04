@@ -1,54 +1,93 @@
 import requests
-import time
+import os
 
-def get_soccer_bets():
-    print("🔍 Fetching all soccer categories...")
+# Put your OddsAPI key here or set as env var
+API_KEY = "183b79e95844e2300faa30f9383890b5"
 
-    index_url = "https://www.bovada.lv/services/sports/menu/events/A/description"
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+# Your Telegram bot token and chat ID here
+BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+CHAT_ID = "964091254"
+# List of soccer leagues to fetch — change or add more IDs from OddsAPI docs
+SOCCER_LEAGUES = [
+    "soccer_epl",        # English Premier League
+    "soccer_uefa_champs_league",
+    "soccer_spain_la_liga",
+    "soccer_italy_serie_a",
+    "soccer_germany_bundesliga",
+    "soccer_france_ligue_one",
+    "soccer_uefa_europa_league",
+    "soccer_uefa_euro_2024_qualifiers",
+]
 
+def fetch_odds(league_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/?apiKey={API_KEY}&regions=us&markets=h2h&oddsFormat=american"
     try:
-        response = requests.get(index_url, headers=headers, timeout=15)
-        print("🟢 Response Status:", response.status_code)
-        print("🟢 Response Sample:", response.text[:300])  # Preview the first 300 characters
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
-        data = response.json()
+        return response.json()
     except Exception as e:
-        print(f"❌ Failed to load categories: {e}")
+        print(f"Failed to fetch odds for {league_key}: {e}")
         return []
 
-    bets = []
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, data=data, timeout=5)
+        if response.status_code != 200:
+            print(f"Failed to send message: {response.text}")
+    except Exception as e:
+        print(f"Error sending telegram message: {e}")
 
-    for sport in data:
-        if sport["description"].lower() == "soccer":
-            for group in sport.get("children", []):
-                for league in group.get("children", []):
-                    link = league.get("link")
-                    if link:
-                        league_url = f"https://www.bovada.lv/services/sports/event/v2/events/A{link}"
-                        print(f"📡 Scraping: {league_url}")
-                        try:
-                            league_resp = requests.get(league_url, headers=headers, timeout=10)
-                            league_resp.raise_for_status()
-                            events_data = league_resp.json()
-                        except Exception as e:
-                            print(f"⚠️ Failed to scrape {league_url}: {e}")
+def find_value_bets(games, min_odds=150):  # American odds > +150 means ~2.5 decimal odds
+    value_bets = []
+    for game in games:
+        home = game.get("home_team")
+        away = game.get("away_team")
+        for bookmaker in game.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market["key"] == "h2h":
+                    for outcome in market["outcomes"]:
+                        price = outcome.get("price")
+                        if price is None:
                             continue
+                        # American odds to check if greater than min_odds (e.g. +150)
+                        if price > min_odds:
+                            bet = {
+                                "matchup": f"{home} vs {away}",
+                                "team": outcome["name"],
+                                "odds": price,
+                                "bookmaker": bookmaker.get("title", "Unknown")
+                            }
+                            value_bets.append(bet)
+    return value_bets
 
-                        for ev_group in events_data:
-                            for event in ev_group.get("events", []):
-                                teams = [comp["name"] for comp in event.get("competitors", [])]
-                                markets = event.get("displayGroups", [])[0].get("markets", []) if event.get("displayGroups") else []
-                                for market in markets:
-                                    if market["description"] == "Moneyline":
-                                        outcomes = market.get("outcomes", [])
-                                        if len(outcomes) >= 2:
-                                            odds = [(o["description"], o["price"]["american"]) for o in outcomes]
-                                            bet_info = f"{' vs '.join(teams)}\n" + '\n'.join([f"{desc}: {price}" for desc, price in odds])
-                                            bets.append(bet_info)
-                                        break
+def main():
+    all_value_bets = []
+    for league in SOCCER_LEAGUES:
+        print(f"Fetching odds for {league}...")
+        games = fetch_odds(league)
+        if not games:
+            print(f"No data for {league}.")
+            continue
+        value_bets = find_value_bets(games)
+        all_value_bets.extend(value_bets)
 
-    print(f"✅ Total soccer bets scraped: {len(bets)}")
-    return bets
+    if not all_value_bets:
+        print("No value bets found.")
+        return
+
+    for bet in all_value_bets:
+        message = (f"*Match:* {bet['matchup']}\n"
+                   f"*Team:* {bet['team']}\n"
+                   f"*Odds:* {bet['odds']}\n"
+                   f"*Bookmaker:* {bet['bookmaker']}")
+        print(message)
+        send_telegram_message(message)
+
+if __name__ == "__main__":
+    main()
