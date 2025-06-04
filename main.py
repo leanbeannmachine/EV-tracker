@@ -34,11 +34,12 @@ def send_telegram_message(text: str):
     except Exception as e:
         print(f"Error sending telegram message: {e}")
 
-def american_to_decimal(american_odds: int) -> float:
-    if american_odds > 0:
-        return 1 + (american_odds / 100)
+def format_american_odds(odds):
+    odds = int(odds)
+    if odds > 0:
+        return f"+{odds}"
     else:
-        return 1 + (100 / abs(american_odds))
+        return str(odds)
 
 def calculate_edge(odds: int, implied_prob: float) -> float:
     # edge = (implied probability from odds) - (estimated winning probability)
