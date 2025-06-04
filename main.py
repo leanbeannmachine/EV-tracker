@@ -53,7 +53,8 @@ def fetch_and_send_bets():
             data = res.json()
             for match in data:
                 try:
-                    teams = match["teams"]
+                    home_team = match.get("home_team", "Home")
+away_team = match.get("away_team", "Away")
                     commence_time = datetime.datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
 
                     if commence_time < now:
@@ -77,7 +78,7 @@ def fetch_and_send_bets():
                             reason = "This bet has a positive expected value and is a strong value play." if edge_percent >= 10 else "This bet is okay but not elite."
 
                             messages.append(
-                                f"{teams[0]} vs {teams[1]}\n"
+                                f"{home_team} vs {away_team}\n"
                                 f"Bet: {team}\n"
                                 f"Odds: {american_odds} (American)\n"
                                 f"Edge: {edge_percent:.2f}% {color}\n"
