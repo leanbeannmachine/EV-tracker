@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import os
 import math
@@ -20,6 +20,10 @@ BOOKMAKER = "bovada"
 REGION = "us"
 MARKET = "h2h"
 THRESHOLD = 3.5  # Minimum EV% to alert
+
+# Define the time window for games: June 4–10, 2025
+START_DATE = datetime(2025, 6, 4, tzinfo=timezone.utc)
+END_DATE = START_DATE + timedelta(days=6)
 
 def format_american_odds(odds):
     odds = int(odds)
@@ -51,8 +55,12 @@ def get_value_bets():
                     home_team = match.get("home_team", "Home")
                     away_team = match.get("away_team", "Away")
                     commence_time = datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
-                    if commence_time < datetime.now(timezone.utc):
-                        continue  # skip past games
+
+                    # Only include games within the June 4–10 window
+                    if not (START_DATE <= commence_time <= END_DATE):
+                        continue
+
+                    start_time_str = commence_time.strftime('%Y-%m-%d %I:%M %p UTC')
 
                     for bookmaker in match.get("bookmakers", []):
                         for market in bookmaker.get("markets", []):
@@ -75,6 +83,7 @@ def get_value_bets():
 
                                     msg = (
                                         f"{home_team} vs {away_team}\n"
+                                        f"Start Time: {start_time_str}\n"
                                         f"Bet: {team}\n"
                                         f"Odds: {odds_display} (American)\n"
                                         f"Edge: {edge:.2f}% {quality}\n"
