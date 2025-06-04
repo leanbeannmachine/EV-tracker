@@ -143,3 +143,15 @@ def format_bet(game):
     except Exception as e:
         logging.error(f"Error formatting bet message: {e}")
         return None
+
+def main_loop():
+    while True:
+        try:
+            send_bets()
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+        logging.info("Sleeping for 15 minutes...")
+        time.sleep(15 * 60)
+
+if __name__ == "__main__":
+    main_loop()
