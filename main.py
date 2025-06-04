@@ -1,131 +1,119 @@
 import requests
+import time
+import pytz
+from datetime import datetime
 
-# === CONFIGURATION ===
-API_KEY = "183b79e95844e2300faa30f9383890b5"  # Your OddsAPI key here
-TELEGRAM_BOT_TOKEN ="7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"  # Replace with your Telegram bot token
-TELEGRAM_CHAT_ID = "964091254"      # Replace with your Telegram chat ID
+# === CONFIGURE YOUR KEYS ===
+API_KEY = "183b79e95844e2300faa30f9383890b5"  # OddsAPI key
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
 
-# Define leagues you want to track (only leagues known to OddsAPI, avoid deprecated ones)
+# === LEAGUES TO TRACK ===
 LEAGUES = [
-    "soccer_australia_aleague",
-    "soccer_belgium_jupiler_pro_league",
-    "soccer_england_premier_league",
+    "soccer_argentina_primera_division",
+    "soccer_brazil_campeonato",
     "soccer_usa_mls",
-    # Add or remove leagues as you like
+    "basketball_wnba",
 ]
 
-# OddsAPI endpoint template
-ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/{league}/odds?apiKey={key}&regions=us&markets=h2h&oddsFormat=american"
-
-# Minimum value edge threshold for bet quality classification
-MIN_EDGE_GREEN = 5  # % edge for green (good)
-MIN_EDGE_YELLOW = 2 # % edge for yellow (okay)
-
-def send_telegram_message(text: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    try:
-        r = requests.post(url, data=data)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"Error sending telegram message: {e}")
+# === FILTER SETTINGS ===
+MIN_EDGE_PERCENT = 5.0  # Minimum edge % to consider it +EV
+MAX_IMPLIED_PROB = 0.75  # Avoid bets that imply > 75% win (risky odds)
 
 # === FORMAT AMERICAN ODDS ===
 def format_american_odds(odds):
     odds = int(odds)
     return f"+{odds}" if odds > 0 else str(odds)
 
-def calculate_edge(odds: int, implied_prob: float) -> float:
-    # edge = (implied probability from odds) - (estimated winning probability)
-    dec = american_to_decimal(odds)
-    odds_prob = 1 / dec
-    return (implied_prob - odds_prob) * 100  # in percent
-
-def classify_bet(edge: float):
-    if edge >= MIN_EDGE_GREEN:
-        return ("🟢 Good Bet", "This bet has a positive expected value and is a strong value play.")
-    elif edge >= MIN_EDGE_YELLOW:
-        return ("🟡 Okay Bet", "This bet has a small edge but still might be profitable with proper bankroll management.")
+# === ESTIMATE IMPLIED WIN PROBABILITY ===
+def implied_probability(american_odds):
+    if american_odds < 0:
+        return (-american_odds) / ((-american_odds) + 100)
     else:
-        return ("🔴 Bad Bet", "This bet is too risky or has negative expected value; avoid for bankroll protection.")
+        return 100 / (american_odds + 100)
 
+# === GET BET QUALITY ===
+def classify_bet(edge):
+    if edge >= 10:
+        return "🟢 Good Bet", "This bet has a strong expected value and is a high-confidence value play."
+    elif edge >= 5:
+        return "🟡 Okay Bet", "This bet has a modest edge and is reasonably safe for bankroll management."
+    else:
+        return "🔴 Bad Bet", "This bet has a low edge and is not recommended for value-focused strategy."
+
+# === TELEGRAM SEND ===
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, data=payload)
+
+# === FETCH +EV BETS ===
 def fetch_and_send_bets():
+    headers = {"User-Agent": "ValueBot"}
+    now = datetime.utcnow().replace(tzinfo=pytz.utc)
+
     for league in LEAGUES:
-        url = ODDS_API_URL.format(league=league, key=API_KEY)
         try:
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 404:
-                print(f"League not found or no odds: {league}")
+            url = f"https://api.the-odds-api.com/v4/sports/{league}/odds?regions=us&markets=h2h&oddsFormat=american&apiKey={API_KEY}"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                print(f"Error fetching odds for {league}: {response.status_code}")
                 continue
-            resp.raise_for_status()
-            matches = resp.json()
-        except Exception as e:
-            print(f"Error fetching odds for league {league}: {e}")
-            continue
+            data = response.json()
 
-        for match in matches:
-            try:
-                home_team = match['home_team']
-                away_team = match['away_team']
-                bookmakers = match['bookmakers']
-                if not bookmakers:
-                    continue
-                # Use first bookmaker for simplicity
-                markets = bookmakers[0]['markets']
-                if not markets:
-                    continue
-                h2h = next((m for m in markets if m['key'] == 'h2h'), None)
-                if not h2h:
-                    continue
-                outcomes = h2h['outcomes']
+            for match in data:
+                try:
+                    commence_time_str = match.get("commence_time", "")
+                    commence_time = datetime.strptime(commence_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.utc)
+                    
+                    if commence_time < now:
+                        continue  # Skip past games
 
-                # Find home, away, and draw odds in American odds format
-                home_odds = next((o for o in outcomes if o['name'] == home_team), None)
-                away_odds = next((o for o in outcomes if o['name'] == away_team), None)
-                draw_odds = next((o for o in outcomes if o['name'].lower() == "draw"), None)
+                    teams = match["teams"]
+                    bookmakers = match.get("bookmakers", [])
+                    if not bookmakers:
+                        continue
+                    outcomes = bookmakers[0]["markets"][0]["outcomes"]
 
-                # Simple example model: Use implied probability from odds (this is raw)
-                # For demonstration, let's say we have a winning probability estimate (dummy example)
-                # In a real model, replace these with your actual win probability estimates per team.
-                # Here, as a placeholder, estimate equal probability for all teams.
-                estimated_prob_home = 0.35
-                estimated_prob_away = 0.35
-                estimated_prob_draw = 0.3
+                    for outcome in outcomes:
+                        team = outcome["name"]
+                        odds = int(outcome["price"])
 
-                messages = []
+                        prob = implied_probability(odds)
+                        edge = (1 - prob) * 100  # naive edge estimate
 
-                # Evaluate Home Bet
-                if home_odds:
-                    edge = calculate_edge(home_odds['price'], estimated_prob_home)
-                    label, reason = classify_bet(edge)
-                    msg = f"<b>{home_team} vs {away_team}</b>\nBet: {home_team}\nOdds: {home_odds['price']} (American)\nEdge: {edge:.2f}% {label}\nReason: {reason}\n"
-                    messages.append(msg)
+                        if edge < MIN_EDGE_PERCENT or prob > MAX_IMPLIED_PROB:
+                            continue
 
-                # Evaluate Away Bet
-                if away_odds:
-                    edge = calculate_edge(away_odds['price'], estimated_prob_away)
-                    label, reason = classify_bet(edge)
-                    msg = f"<b>{home_team} vs {away_team}</b>\nBet: {away_team}\nOdds: {away_odds['price']} (American)\nEdge: {edge:.2f}% {label}\nReason: {reason}\n"
-                    messages.append(msg)
+                        quality_tag, reason = classify_bet(edge)
 
-                # Evaluate Draw Bet
-                if draw_odds:
-                    edge = calculate_edge(draw_odds['price'], estimated_prob_draw)
-                    label, reason = classify_bet(edge)
-                    msg = f"<b>{home_team} vs {away_team}</b>\nBet: Draw\nOdds: {draw_odds['price']} (American)\nEdge: {edge:.2f}% {label}\nReason: {reason}\n"
-                    messages.append(msg)
+                        formatted_odds = format_american_odds(odds)
+                        home_team = match["home_team"]
+                        away_team = match["away_team"]
+                        time_display = commence_time.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M %p")
 
-                # Send only green and yellow bets to Telegram to limit noise
-                for message in messages:
-                    if "🔴" not in message:
+                        message = (
+                            f"*{home_team} vs {away_team}*\n"
+                            f"🕒 {time_display} ET\n"
+                            f"Bet: *{team}*\n"
+                            f"Odds: *{formatted_odds}* (American)\n"
+                            f"Edge: *{edge:.2f}%* {quality_tag}\n"
+                            f"_Reason_: {reason}"
+                        )
+
                         send_telegram_message(message)
 
-            except Exception as e:
-                print(f"Error parsing match in league {league}: {e}")
+                except Exception as e:
+                    print(f"Error parsing match in {league}: {e}")
+                    continue
 
+        except Exception as e:
+            print(f"Error in league {league}: {e}")
+
+# === MAIN RUN ===
 if __name__ == "__main__":
     fetch_and_send_bets()
