@@ -51,7 +51,10 @@ def fetch_and_send_bets():
             data = res.json()
             for match in data:
                 try:
-                    home, away = match['teams']
+                   teams = match.get('teams', [])
+if len(teams) != 2:
+    continue  # Skip if teams are missing or malformed
+home, away = teams
                     commence_time = match['commence_time']
                     utc_dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
                     est_dt = utc_dt.astimezone(pytz.timezone("US/Eastern"))
