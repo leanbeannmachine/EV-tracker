@@ -1,66 +1,44 @@
 import requests
-from bs4 import BeautifulSoup
 
-# 🎯 Define the soccer leagues you want to include
-TARGET_LEAGUES = [
-    "UEFA U21",
-    "International - U21",
-    "UEFA Nations League",
-    "Copa America",
-    "CONCACAF Nations League",
-    "Major League Soccer",
-    "Brazil - Serie A",
-    "Argentina - Liga Profesional",
-    "Sweden - Allsvenskan",
-    "Norway - Eliteserien",
-    "Japan - J1 League",
-    "South Korea - K League 1"
-]
+# Set a hard cap for how many bets you want to process (e.g. 100 max)
+MAX_BETS = 50
 
 def get_bovada_odds():
-    print("Scraping Bovada for filtered soccer leagues...")
+    print("📡 Fetching capped odds from Bovada...")
 
-    url = "https://www.bovada.lv/sports/soccer"
+    url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0"
     }
 
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
+        data = response.json()
     except Exception as e:
         print(f"❌ Request failed: {e}")
         return []
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    games = soup.select('.market-container')
+    events = []
+    for category in data:
+        for sport in category.get('events', []):
+            title = sport.get("description", "Unknown")
+            teams = [comp.get("name", "Unknown") for comp in sport.get("competitors", [])]
+            markets = sport.get("displayGroups", [])
 
-    results = []
+            for group in markets:
+                for market in group.get("markets", []):
+                    outcomes = market.get("outcomes", [])
+                    if len(outcomes) >= 2:
+                        odds_pair = [out.get("price", {}).get("american", "N/A") for out in outcomes]
+                        events.append({
+                            "matchup": f"{' vs '.join(teams)}",
+                            "market": market.get("description", "Unknown Market"),
+                            "odds": odds_pair
+                        })
+                        if len(events) >= MAX_BETS:
+                            print(f"🛑 Reached data cap of {MAX_BETS} bets.")
+                            return events
 
-    for game in games:
-        league_tag = game.find_previous("h4")
-        league_name = league_tag.text.strip() if league_tag else "Unknown League"
-
-        if not any(target.lower() in league_name.lower() for target in TARGET_LEAGUES):
-            continue  # Skip leagues not in your list
-
-        teams = game.select('.competitor-name')
-        odds = game.select('.bet-price')
-
-        if len(teams) == 2 and len(odds) >= 2:
-            try:
-                team1 = teams[0].text.strip()
-                team2 = teams[1].text.strip()
-                odds1 = odds[0].text.strip()
-                odds2 = odds[1].text.strip()
-
-                results.append({
-                    "league": league_name,
-                    "matchup": f"{team1} vs {team2}",
-                    "odds": [odds1, odds2]
-                })
-            except IndexError:
-                continue  # Skip broken entries
-
-    print(f"✅ Scraped {len(results)} games from target leagues.")
-    return results
+    print(f"✅ Scraped {len(events)} bets from Bovada.")
+    return events
