@@ -6,7 +6,7 @@ import pytz
 
 # --- CONFIG ---
 API_KEY = "183b79e95844e2300faa30f9383890b5"
-BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 CHAT_ID = "964091254"
 
 LEAGUES = "australia_brisbane_premier_league,australia_queensland_premier_league,usa_usl_league_two,usa_usl_w_league,usa_wpsl,soccer_friendly_women,basketball_wnba"
