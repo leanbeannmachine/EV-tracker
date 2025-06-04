@@ -1,92 +1,89 @@
 import requests
 import datetime
 import pytz
+import os
+from telegram import Bot
 
-# Your tokens
-SPORTMONKS_API_TOKEN = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+# Your credentials
+ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-# Get current UTC time and 3 days later
-now = datetime.datetime.now(pytz.utc)
-in_3_days = now + datetime.timedelta(days=3)
-start_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-end_str = in_3_days.strftime("%Y-%m-%dT%H:%M:%SZ")
+# Time range setup
+def get_current_utc_window():
+    now = datetime.datetime.now(pytz.utc)
+    three_days_later = now + datetime.timedelta(days=3)
+    return now.isoformat(), three_days_later.isoformat()
 
-# API request to SportMonks for MLB fixtures
-url = "https://api.sportmonks.com/v3/baseball/fixtures"
-params = {
-    "api_token": SPORTMONKS_API_TOKEN,
-    "include": "odds.bookmakers.markets",
-    "filter[starts_between]": f"{start_str},{end_str}",
-    "filter[league_id]": "1",  # Assuming '1' is the MLB league ID
-    "sort": "starting_at",
-    "per_page": 50
-}
+# Odds formatting
+def american_to_implied(odds):
+    if odds < 0:
+        return -odds / (-odds + 100)
+    return 100 / (odds + 100)
 
-try:
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    data = response.json()
+def calculate_value(odds, implied_prob):
+    fair_prob = american_to_implied(odds)
+    return round((implied_prob - fair_prob) * 100, 2)
 
-    fixtures = data.get("data", [])
-    if not fixtures:
-        message = "📭 No MLB bets available in the next 3 days."
-        requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", params={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message
-        })
-    else:
-        count = 0
-        for fixture in fixtures:
-            try:
-                teams = fixture.get("participants", [])
-                if len(teams) < 2:
+# Fetch bets from OddsAPI
+def fetch_mlb_bets():
+    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/"
+    params = {
+        "regions": "us",
+        "markets": "h2h",
+        "oddsFormat": "american",
+        "apiKey": ODDS_API_KEY
+    }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print("❌ Error fetching bets:", e)
+        return []
+
+# Filter and format bets
+def filter_and_format_bets(games):
+    messages = []
+    for game in games:
+        teams = game.get("home_team") + " vs " + game.get("away_team")
+        commence = game.get("commence_time", "")[:16].replace("T", " ")
+        for bookmaker in game.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market["key"] != "h2h":
                     continue
+                outcomes = market.get("outcomes", [])
+                if len(outcomes) != 2:
+                    continue
+                a, b = outcomes
+                prob_a = american_to_implied(a["price"])
+                prob_b = american_to_implied(b["price"])
+                margin = prob_a + prob_b
 
-                team1 = teams[0]["name"]
-                team2 = teams[1]["name"]
-                start_time = fixture.get("starting_at", "Unknown time")
+                if margin < 1.05:  # Bookmaker margin under 5%
+                    label = a["name"] if prob_a > prob_b else b["name"]
+                    odds = a["price"] if prob_a > prob_b else b["price"]
+                    confidence = round(max(prob_a, prob_b) * 100, 2)
+                    message = f"🔥 *MLB Value Bet*\n\n📅 {commence}\n🆚 {teams}\n🏆 Pick: *{label}* at odds {odds}\n🔍 Confidence: *{confidence}%*\n📈 Market edge: Low margin"
+                    messages.append(message)
+    return messages
 
-                odds_data = fixture.get("odds", {}).get("data", [])
-                for bookmaker in odds_data:
-                    markets = bookmaker.get("markets", {}).get("data", [])
-                    for market in markets:
-                        if market["name"] == "Match Winner":
-                            outcomes = market.get("outcomes", {}).get("data", [])
-                            for outcome in outcomes:
-                                if outcome.get("odds", {}).get("american"):
-                                    odds = outcome["odds"]["american"]
-                                    label = outcome["label"]
-                                    value = int(odds.replace("+", "")) if "+" in odds else -int(odds)
-                                    if value >= 120:
-                                        reason = f"📊 Odds for {label}: {odds} — solid upside for a straight win."
-                                        msg = (
-                                            f"⚾ *{team1} vs {team2}*\n"
-                                            f"🕒 Start: {start_time}\n"
-                                            f"💰 Bet: *{label}* to win\n"
-                                            f"💸 Odds: `{odds}`\n\n"
-                                            f"{reason}"
-                                        )
-                                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={
-                                            "chat_id": TELEGRAM_CHAT_ID,
-                                            "text": msg,
-                                            "parse_mode": "Markdown"
-                                        })
-                                        count += 1
-            except Exception as e:
-                print(f"Fixture parse error: {e}")
+# Telegram sender
+def send_to_telegram(messages):
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    for msg in messages:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="Markdown")
 
-        if count == 0:
-            message = "📭 No strong MLB bets found with good odds in the next 3 days."
-            requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", params={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
-            })
+def main():
+    games = fetch_mlb_bets()
+    if not games:
+        print("🚫 No bets found.")
+        return
+    messages = filter_and_format_bets(games)
+    if messages:
+        send_to_telegram(messages)
+    else:
+        print("🟡 No high-quality bets detected.")
 
-except Exception as e:
-    error_msg = f"🚨 Bot error:\n{e}"
-    requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", params={
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": error_msg
-    })
+if __name__ == "__main__":
+    main()
