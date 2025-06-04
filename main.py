@@ -34,12 +34,10 @@ def send_telegram_message(text: str):
     except Exception as e:
         print(f"Error sending telegram message: {e}")
 
+# === FORMAT AMERICAN ODDS ===
 def format_american_odds(odds):
     odds = int(odds)
-    if odds > 0:
-        return f"+{odds}"
-    else:
-        return str(odds)
+    return f"+{odds}" if odds > 0 else str(odds)
 
 def calculate_edge(odds: int, implied_prob: float) -> float:
     # edge = (implied probability from odds) - (estimated winning probability)
