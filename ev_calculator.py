@@ -17,7 +17,7 @@ def find_ev_bets(bets):
             dec_odds = convert_american_to_decimal(bet['price'])
             win_prob = estimate_prob(dec_odds)  # Placeholder, replace with your model later
             ev = calculate_ev(dec_odds, win_prob)
-            if ev > 0.03:  # Filter only good EV bets
+            if ev > 0.02:  # Filter only good EV bets
                 bet['decimal'] = dec_odds
                 bet['ev'] = ev
                 bet['win_prob'] = win_prob
