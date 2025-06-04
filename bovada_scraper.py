@@ -16,7 +16,6 @@ TARGET_LEAGUES = [
     "Japan - J1 League",
     "South Korea - K League 1"
 ]
-]
 
 def get_bovada_odds():
     print("Scraping Bovada for filtered soccer leagues...")
