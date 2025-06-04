@@ -1,6 +1,10 @@
 import requests
 import os
+import requests
 
+def get_soccer_bets(api_key):
+    # Your code here that uses the api_key to fetch soccer bets from OddsAPI
+    pass
 # Put your OddsAPI key here or set as env var
 API_KEY = "183b79e95844e2300faa30f9383890b5"
 
