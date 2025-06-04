@@ -30,7 +30,7 @@ def classify_bet(ev, prob):
         return "🔴 Bad", "Low value or poor win rate"
 
 def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = url = f"https://api.the-odds-api.com/v4/sports/?apiKey={ODDS_API_KEY}"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     requests.post(url, data=data)
 
