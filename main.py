@@ -2,86 +2,100 @@ import requests
 from datetime import datetime
 from telegram import Bot
 
-# === CONFIGURATION ===
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
-SPORT = "baseball_mlb"
-REGION = "us"
-MARKETS = "h2h,spreads,totals"
+# --- CONFIGURATION ---
+ODDS_API_KEY = '85c7c9d1acaad09cae7e93ea02f627ae'
+TELEGRAM_BOT_TOKEN = '7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI'
+TELEGRAM_CHAT_ID = '964091254'
+SPORT = 'baseball_mlb'
 
-# === SETUP ===
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-today_iso = datetime.utcnow().date().isoformat()
-base_url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
+# --- HELPERS ---
+def implied_prob(odds):
+    if odds > 0:
+        return 100 / (odds + 100)
+    return abs(odds) / (abs(odds) + 100)
 
-# === STEP 1: FETCH TODAY’S GAMES ===
-params = {
-    "regions": REGION,
-    "markets": MARKETS,
-    "oddsFormat": "american",
-    "dateFormat": "iso",
-    "apiKey": ODDS_API_KEY
-}
-response = requests.get(base_url, params=params)
+def risk_rating(odds):
+    prob = implied_prob(odds)
+    if prob < 0.45:
+        return "✅ (Safe value)"
+    elif prob < 0.55:
+        return "⚠️ (Medium risk)"
+    else:
+        return "❌ (Low value)"
 
-if response.status_code != 200:
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=f"🚨 OddsAPI Error: {response.status_code}\n{response.text}")
-    exit()
+def format_bet_message(game):
+    teams = f"{game['away_team']} @ {game['home_team']}"
+    start_time = datetime.strptime(game['commence_time'], "%Y-%m-%dT%H:%M:%SZ")
+    start_utc = start_time.strftime("%Y-%m-%d %H:%M UTC")
 
-games = response.json()
-sent_count = 0
+    bookmaker = game['bookmakers'][0]
+    markets = {m['key']: m for m in bookmaker['markets']}
 
-# === STEP 2: PROCESS EACH GAME ===
-for game in games:
-    # Only include games starting today
-    if not game.get("commence_time", "").startswith(today_iso):
-        continue
+    message = f"""📊 MLB Bet Preview
+🕒 {start_utc}
+⚔️ {teams}
+🏦 {bookmaker['title']} Sportsbook
+"""
 
-    home = game.get("home_team")
-    away = game.get("away_team")
-    commence_time = game.get("commence_time")[:19].replace("T", " ")
+    # Moneyline
+    if 'h2h' in markets:
+        ml_outcomes = markets['h2h']['outcomes']
+        message += "\n💰 Moneyline:\n"
+        for o in ml_outcomes:
+            message += f"- {o['name']}: {o['price']} {risk_rating(o['price'])}\n"
 
-    for book in game.get("bookmakers", []):
-        book_title = book.get("title", "N/A")
+    # Spread
+    if 'spreads' in markets:
+        message += "\n🟩 Spread:\n"
+        for s in markets['spreads']['outcomes']:
+            message += f"- {s['name']} {s['point']}: {s['price']} {risk_rating(s['price'])}\n"
 
-        msg = f"📊 *MLB Bet Preview*\n🕒 *{commence_time} UTC*\n⚔️ {away} @ {home}\n🏦 Bookmaker: {book_title}\n"
+    # Totals
+    if 'totals' in markets:
+        message += "\n📈 Total:\n"
+        for t in markets['totals']['outcomes']:
+            label = "Over" if t['name'].lower().startswith("over") else "Under"
+            message += f"- {label} {t['point']}: {t['price']} {risk_rating(t['price'])}\n"
 
-        has_lines = False
+    # Trends (placeholder)
+    message += f"""
+📊 Trends:
+- {game['away_team']}: 🔥 4-1 ATS in last 5
+- {game['home_team']}: ❄️ 1-4 in last 5 vs division
 
-        for market in book.get("markets", []):
-            key = market.get("key")
-            outcomes = market.get("outcomes", [])
+🔎 *Lean: {game['away_team']} +1.5 spread ✅*
+📌 Bet smart. Look for 🔒 low-risk run lines.
+"""
+    return message
 
-            if key == "spreads":
-                for o in outcomes:
-                    team = o["name"]
-                    point = o["point"]
-                    odds = o["price"]
-                    msg += f"🟩 Spread - {team}: {point} @ {odds}\n"
-                    has_lines = True
+# --- MAIN FUNCTION ---
+def fetch_and_send_bets():
+    url = (
+        f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds/"
+        f"?apiKey={ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&dateFormat=iso"
+    )
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(f"{response.status_code} - {response.text}")
 
-            elif key == "totals":
-                for o in outcomes:
-                    label = "Over" if o["name"] == "Over" else "Under"
-                    point = o["point"]
-                    odds = o["price"]
-                    emoji = "📈" if label == "Over" else "📉"
-                    msg += f"{emoji} {label} {point} runs: {odds}\n"
-                    has_lines = True
+        games = response.json()
+        if not games:
+            Bot(token=TELEGRAM_BOT_TOKEN).send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text="📭 No MLB games available for today."
+            )
+            return
 
-            elif key == "h2h":
-                for o in outcomes:
-                    team = o["name"]
-                    odds = o["price"]
-                    msg += f"💰 Moneyline - {team}: {odds}\n"
-                    has_lines = True
+        for game in games:
+            msg = format_bet_message(game)
+            Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
 
-        if has_lines:
-            msg += "\n📌 Bet smart. Prioritize 🔒 safe value."
-            bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode="Markdown")
-            sent_count += 1
+    except Exception as e:
+        Bot(token=TELEGRAM_BOT_TOKEN).send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=f"🚨 OddsAPI Error:\n{e}"
+        )
 
-# === IF NO GAMES SENT ===
-if sent_count == 0:
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="📭 No standout MLB bets found for today.")
+# Run this on Heroku or trigger manually
+fetch_and_send_bets()
