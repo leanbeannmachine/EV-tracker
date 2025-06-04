@@ -2,14 +2,13 @@ import requests
 
 def get_soccer_bets():
     api_key = "183b79e95844e2300faa30f9383890b5"
-    
-    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
 
+    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
     params = {
         "apiKey": api_key,
         "regions": "us",
         "markets": "h2h,spreads,totals",
-        "oddsFormat": "decimal",
+        "oddsFormat": "decimal"
     }
 
     try:
@@ -20,18 +19,19 @@ def get_soccer_bets():
         print(f"❌ Request failed: {e}")
         return []
 
-    # Log all available leagues and match info
-    leagues = set()
+    print("\n📊 Logging all received matches:\n")
+
     for match in data:
-        if "league" in match:
-            leagues.add(match["league"])
+        teams = match.get("teams", ["Unknown", "Unknown"])
+        commence = match.get("commence_time", "Unknown time")
+        league = match.get("league", "Unknown league")
+        bookmakers = match.get("bookmakers", [])
+
         print("––––––––––––––––––––––––")
-        print("🏟 Match:", match.get("teams"))
-        print("📅 Commence Time:", match.get("commence_time"))
-        print("📘 League (if available):", match.get("league", "Unknown"))
+        print(f"🏟 Match: {teams[0]} vs {teams[1]}")
+        print(f"📅 Commence Time: {commence}")
+        print(f"📘 League: {league}")
+        print(f"📚 Bookmakers Available: {len(bookmakers)}")
 
-    print(f"\n📋 Unique Leagues Found ({len(leagues)}):")
-    for l in leagues:
-        print(f"  - {l}")
-
-    return data  # Return all data for now, without filtering
+    print(f"\n✅ Total Matches Found: {len(data)}")
+    return data
