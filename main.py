@@ -100,7 +100,7 @@ def get_value_bets():
                         for bookmaker in match.get("bookmakers", []):
                             if bookmaker['key'] != BOOKMAKER:
                                 continue
-                                
+                            
                             for market_data in bookmaker.get("markets", []):
                                 market_key = market_data['key']
                                 if market_key != market:
@@ -142,4 +142,78 @@ def get_value_bets():
                                         bet_desc = format_bet_description(market_key, outcome)
                                         market_name = MARKET_NAMES.get(market_key, market_key)
                                         
-                                        matches[match_id]['bets'].
+                                        # Append the bet to the list for this match
+                                        matches[match_id]['bets'].append({
+                                            'market': market_name,
+                                            'bet': bet_desc,
+                                            'odds': format_american_odds(odds),
+                                            'edge': edge,
+                                            'quality': quality,
+                                            'reason': reason
+                                        })
+                    except Exception as e:
+                        print(f"Error parsing match in {league}/{market}: {str(e)}")
+                
+                time.sleep(1.5)  # Respect API rate limits
+
+            except Exception as e:
+                print(f"Error in league {league} market {market}: {str(e)}")
+                time.sleep(3)
+                
+    return matches
+
+def format_match_message(match_data):
+    """Create formatted Telegram message for a match"""
+    home = match_data['home']
+    away = match_data['away']
+    start_time = match_data['start_time'].strftime("%a, %b %d @ %H:%M UTC")
+    
+    # Header with teams and time
+    message = [
+        f"🏆 *{home} vs {away}*",
+        f"⏰ {start_time}",
+        "--------------------------------"
+    ]
+    
+    # Add all bets for this match
+    for idx, bet in enumerate(match_data['bets'], 1):
+        message.append(
+            f"🔹 *{bet['market']}*\n"
+            f"• Bet: {bet['bet']}\n"
+            f"• Odds: `{bet['odds']}`\n"
+            f"• Edge: {bet['edge']:.1f}% {bet['quality']}\n"
+            f"• Reason: {bet['reason']}\n"
+        )
+    
+    # Add match separator
+    message.append("📊 *Value Match Analysis*")
+    return "\n".join(message)
+
+def send_to_telegram(matches):
+    if not matches:
+        print("No value bets found.")
+        return
+
+    bot = telegram.Bot(token=BOT_TOKEN)
+    for match_id, match_data in matches.items():
+        if match_data['bets']:
+            message = format_match_message(match_data)
+            try:
+                bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=message,
+                    parse_mode=telegram.ParseMode.MARKDOWN
+                )
+                time.sleep(1.2)  # Avoid Telegram rate limits
+            except Exception as e:
+                print(f"Error sending message: {str(e)}")
+                time.sleep(5)
+
+if __name__ == "__main__":
+    print("Starting value bet finder...")
+    matches = get_value_bets()
+    if matches:
+        print(f"Found {len(matches)} matches with value bets")
+        send_to_telegram(matches)
+    else:
+        print("No value bets found this week")
