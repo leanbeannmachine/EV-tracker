@@ -40,28 +40,44 @@ def fetch_and_send_bets():
         try:
             url = f"https://api.the-odds-api.com/v4/sports/{league}/odds/?apiKey={API_KEY}&regions=us&markets=h2h&oddsFormat=american"
             response = requests.get(url)
-            if response.status_code == 404:
+            
+            if response.status_code != 200:
+                print(f"Error fetching odds for {league}: {response.status_code}")
                 continue
-            games = response.json()
+
+            try:
+                games = response.json()
+                if not isinstance(games, list):
+                    print(f"Invalid data format for {league}, skipping.")
+                    continue
+            except Exception as e:
+                print(f"Error parsing JSON for {league}: {e}")
+                continue
 
             for game in games:
-                teams = game['teams']
-                commence_time = datetime.fromisoformat(game['commence_time'].replace("Z", "+00:00"))
-                odds_data = game['bookmakers'][0]['markets'][0]['outcomes']
+                try:
+                    teams = game.get('teams', [])
+                    if not teams or 'bookmakers' not in game or not game['bookmakers']:
+                        continue
 
-                message = f"📊 *{league.replace('_', ' ').title()}*\n⏰ {commence_time.strftime('%Y-%m-%d %I:%M %p')} UTC\n"
+                    commence_time = datetime.fromisoformat(game['commence_time'].replace("Z", "+00:00"))
+                    odds_data = game['bookmakers'][0]['markets'][0]['outcomes']
 
-                for outcome in odds_data:
-                    name = outcome['name']
-                    odds = outcome['price']
-                    win_prob = calculate_win_probability(odds)
-                    quality = get_bet_quality(win_prob)
-                    message += f"\n{name}: {odds} odds\n🧮 Win %: {win_prob}%\n{quality}"
+                    message = f"📊 *{league.replace('_', ' ').title()}*\n⏰ {commence_time.strftime('%Y-%m-%d %I:%M %p')} UTC\n"
 
-                send_telegram_message(message)
-                time.sleep(1)
+                    for outcome in odds_data:
+                        name = outcome['name']
+                        odds = outcome['price']
+                        win_prob = calculate_win_probability(odds)
+                        quality = get_bet_quality(win_prob)
+                        message += f"\n{name}: {odds} odds\n🧮 Win %: {win_prob}%\n{quality}"
+
+                    send_telegram_message(message)
+                    time.sleep(1)
+
+                except Exception as e:
+                    print(f"Error formatting game data in {league}: {e}")
+                    continue
 
         except Exception as e:
-            print(f"Error fetching odds for {league}: {str(e)}")
-
-fetch_and_send_bets()
+            print(f"Unexpected error fetching odds for {league}: {e}")
