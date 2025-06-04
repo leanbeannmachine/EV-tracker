@@ -1,4 +1,5 @@
 import requests
+import time
 
 def get_soccer_bets():
     print("🔍 Fetching all soccer categories...")
@@ -10,6 +11,8 @@ def get_soccer_bets():
 
     try:
         response = requests.get(index_url, headers=headers, timeout=15)
+        print("🟢 Response Status:", response.status_code)
+        print("🟢 Response Sample:", response.text[:300])  # Preview the first 300 characters
         response.raise_for_status()
         data = response.json()
     except Exception as e:
@@ -18,7 +21,6 @@ def get_soccer_bets():
 
     bets = []
 
-    # Look through all soccer-related paths
     for sport in data:
         if sport["description"].lower() == "soccer":
             for group in sport.get("children", []):
