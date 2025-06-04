@@ -3,7 +3,7 @@ import requests
 import telegram
 
 # 🔐 Your credentials (already filled in)
-API_KEY = "183b79e95844e2300faa30f9383890b5"
+ODDS_API_KEY = "183b79e95844e2300faa30f9383890b5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
