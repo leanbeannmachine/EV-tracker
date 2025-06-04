@@ -61,8 +61,8 @@ def format_american_odds(odds):
 
 def format_bet(game):
     try:
-        home = game['home_team']
-        away = [team for team in game['teams'] if team != home][0]
+        home = game.get('home_team', 'Unknown Home')
+        away = game.get('away_team', 'Unknown Away')
         commence_utc = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00'))
         commence_local = commence_utc.astimezone(LOCAL_TIMEZONE)
         start_time_str = commence_local.strftime('%Y-%m-%d %I:%M %p %Z')
@@ -123,7 +123,6 @@ def format_bet(game):
             total_str += "\n- Odds not available"
 
         # Dummy trends and lean (for demo, you must replace with real trend logic)
-        # Just a placeholder logic - replace with your real ATS and recent form checks
         trends_str = f"📊 Trends:\n- {away}: 🔥 3-2 ATS in last 5\n- {home}: ❄️ 2-3 ATS in last 5"
         lean_str = f"🔎 Lean: {home} moneyline ⚠️"
         advice = "📌 Bet smart. Look for 🔒 low-risk run lines."
@@ -144,44 +143,3 @@ def format_bet(game):
     except Exception as e:
         logging.error(f"Error formatting bet message: {e}")
         return None
-
-def send_telegram_message(text):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
-        logging.info("Sent Telegram message")
-    except Exception as e:
-        logging.error(f"Error sending Telegram message: {e}")
-
-def send_bets():
-    global sent_bets
-    games = fetch_today_games()
-    if not games:
-        logging.info("No games found for today.")
-        return
-
-    bets_sent_this_cycle = 0
-
-    for game in games:
-        game_id = game.get('id')
-        if game_id in sent_bets:
-            continue  # skip duplicate
-
-        bet_msg = format_bet(game)
-        if bet_msg:
-            send_telegram_message(bet_msg)
-            sent_bets.add(game_id)
-            bets_sent_this_cycle += 1
-
-        if bets_sent_this_cycle >= MAX_BETS_PER_CYCLE:
-            break
-
-    logging.info(f"Cycle complete: sent {bets_sent_this_cycle} bets.")
-
-def main():
-    while True:
-        send_bets()
-        logging.info(f"Sleeping for {PAUSE_BETWEEN_CYCLES/60:.0f} minutes...")
-        time.sleep(PAUSE_BETWEEN_CYCLES)
-
-if __name__ == "__main__":
-    main()
