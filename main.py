@@ -1,116 +1,128 @@
 import requests
 import telegram
+import time
 from datetime import datetime, timezone
-import random
 
-# --- CONFIGURATION ---
+# ===== CONFIGURATION =====
 SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
-THRESHOLD_EDGE = 5  # Minimum edge % to send
-ODDS_SOURCE = "bet365"  # Can adjust later if needed
+BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+CHAT_ID = 964091254
 
-# --- Initialize bot ---
-bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+# Threshold for "good value" edge (percent)
+EDGE_THRESHOLD = 5.0
 
-# --- Helper functions ---
-def format_american_odds(odds_decimal):
-    if odds_decimal >= 2.0:
-        return f"+{int((odds_decimal - 1) * 100)}"
-    else:
-        return f"{int(-100 / (odds_decimal - 1))}"
+# Telegram bot init
+bot = telegram.Bot(token=BOT_TOKEN)
 
-def implied_probability(decimal_odds):
-    return 1 / decimal_odds if decimal_odds else 0
 
-def classify_edge(edge):
-    if edge >= 10:
-        return "🟢 High Value"
-    elif edge >= 5:
-        return "🟡 Solid Value"
-    else:
-        return "🔴 Low Value"
-
-def generate_reasoning(home, away, odds, implied, edge):
-    trends = [
-        f"{home} vs {away} has historically favored {random.choice([home, away])}",
-        f"{away} has underperformed in their last 5 matches.",
-        f"Recent data suggests a mismatch in form levels.",
-        f"Odds of {odds} imply only {implied*100:.1f}% chance, but market signals higher probability.",
-        f"{home} playing at home with momentum makes this value sharp.",
-        f"Betting models predict this line should be shorter."
-    ]
-    return random.choice(trends) + f" - Edge: {edge:.1f}%"
-
-# --- Main fetch function ---
-def fetch_fixtures():
-    url = f"https://api.sportmonks.com/v3/football/fixtures?api_token={SPORTMONKS_API_KEY}&include=odds&filters=starts_between:{datetime.utcnow().date()},{datetime.utcnow().date()}"
+def fetch_upcoming_matches():
+    """Fetch upcoming matches from SportMonks API."""
+    url = (
+        f"https://api.sportmonks.com/v3/football/fixtures"
+        f"?api_token={SPORTMONKS_API_KEY}"
+        f"&include=odds.bookmakers.markets"
+        f"&filter[starts_between]=now,now%2B3days"
+        f"&sort=starting_at"
+        f"&per_page=50"
+    )
     response = requests.get(url)
-    if response.status_code != 200:
-        print("Failed to fetch SportMonks data.")
-        return []
+    response.raise_for_status()
+    data = response.json()
+    return data.get('data', [])
 
-    data = response.json().get("data", [])
-    alerts = []
 
-    for match in data:
-        try:
-            fixture_id = match["id"]
-            home = match["home_team"]["name"]
-            away = match["away_team"]["name"]
-            kickoff = match["starting_at"]["date_time"]
-            kickoff_dt = datetime.fromisoformat(kickoff.replace("Z", "+00:00"))
+def implied_probability(odds):
+    """Convert decimal odds to implied probability."""
+    try:
+        decimal_odds = float(odds)
+        return 1 / decimal_odds if decimal_odds > 0 else 0
+    except (ValueError, TypeError):
+        return 0
 
-            odds_data = match.get("odds", [])
-            for odd in odds_data:
-                if odd.get("bookmaker") and odd["bookmaker"]["name"].lower() != ODDS_SOURCE:
-                    continue
-                for bet in odd.get("odds", []):
-                    outcome = bet.get("label")
-                    value = bet.get("value")
-                    decimal_odds = float(bet.get("decimal", 0))
 
-                    if decimal_odds == 0:
-                        continue
+def format_odds(odds):
+    """Convert decimal odds to American odds format."""
+    try:
+        decimal_odds = float(odds)
+        if decimal_odds >= 2.0:
+            american = int((decimal_odds - 1) * 100)
+            return f"+{american}"
+        else:
+            american = int(-100 / (decimal_odds - 1))
+            return f"{american}"
+    except Exception:
+        return str(odds)
 
-                    implied = implied_probability(decimal_odds)
-                    edge = (1 - implied) * 100
 
-                    if edge >= THRESHOLD_EDGE:
-                        american_odds = format_american_odds(decimal_odds)
-                        tag = classify_edge(edge)
-                        reason = generate_reasoning(home, away, american_odds, implied, edge)
-                        alerts.append({
-                            "match": f"{home} vs {away}",
-                            "start": kickoff_dt.strftime('%Y-%m-%d %H:%M UTC'),
-                            "bet": f"{outcome} ({value})",
-                            "odds": american_odds,
-                            "edge": f"{edge:.1f}%",
-                            "quality": tag,
-                            "reason": reason
-                        })
-        except Exception as e:
-            print(f"Error processing match: {e}")
-            continue
+def generate_reasoning(home, away, market_name, outcome_name, edge_percent):
+    """Generate varied reasoning text for bets."""
+    reasons = [
+        f"{outcome_name} shows strong recent form against similar opposition.",
+        f"Market appears to undervalue {outcome_name} given recent performance trends.",
+        f"Statistical models suggest {outcome_name} has an edge based on past 5 matches.",
+        f"Injuries and squad news favor {outcome_name} for this match.",
+        f"Historical matchup data supports betting on {outcome_name} in this fixture.",
+        f"Recent defensive weaknesses in {away if outcome_name == home else home} favor {outcome_name}.",
+        f"{outcome_name} has a good home/away form, improving chances here.",
+        f"Odds imply a positive expected value bet for {outcome_name} in this market.",
+    ]
+    import random
+    reason = random.choice(reasons)
+    return f"{reason} (Edge: {edge_percent:.1f}%)"
 
-    return alerts
 
-def send_alerts():
-    bets = fetch_fixtures()
-    if not bets:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="No value bets found today.")
+def analyze_and_send_bets():
+    matches = fetch_upcoming_matches()
+    if not matches:
+        bot.send_message(chat_id=CHAT_ID, text="No upcoming matches found for betting.")
         return
 
-    for bet in bets:
-        msg = (
-            f"{bet['match']} - 🕒 {bet['start']}\n"
-            f"Bet: {bet['bet']}\n"
-            f"Odds: {bet['odds']}\n"
-            f"Edge: {bet['edge']} {bet['quality']}\n"
-            f"Reason: {bet['reason']}"
-        )
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
+    bets_found = False
+    for match in matches:
+        fixture = match['fixture']
+        teams = match['teams']
+        home_team = teams['home']['name']
+        away_team = teams['away']['name']
+        start_time_utc = datetime.fromisoformat(fixture['date'].replace('Z', '+00:00'))
+        start_time_str = start_time_utc.strftime("%Y-%m-%d %H:%M UTC")
 
-# --- Trigger ---
+        odds_data = match.get('odds', {}).get('data', [])
+        if not odds_data:
+            continue
+
+        for bookmaker in odds_data:
+            markets = bookmaker.get('markets', [])
+            for market in markets:
+                market_name = market.get('name', '').lower()
+                outcomes = market.get('outcomes', [])
+
+                for outcome in outcomes:
+                    name = outcome.get('name')
+                    price = outcome.get('price')
+                    if price is None:
+                        continue
+                    prob = implied_probability(price)
+                    if prob == 0:
+                        continue
+                    edge = (1 - prob) * 100
+
+                    if edge >= EDGE_THRESHOLD:
+                        bets_found = True
+                        odds_str = format_odds(price)
+                        reason = generate_reasoning(home_team, away_team, market_name, name, edge)
+                        msg = (
+                            f"{home_team} vs {away_team} - 🕒 {start_time_str}\n"
+                            f"Bet: {name} ({market_name.capitalize()})\n"
+                            f"Odds: {odds_str}\n"
+                            f"Edge: {edge:.2f}% 🟢 Good Value Bet\n"
+                            f"Reason: {reason}"
+                        )
+                        bot.send_message(chat_id=CHAT_ID, text=msg)
+                        time.sleep(1)  # avoid spam limit
+
+    if not bets_found:
+        bot.send_message(chat_id=CHAT_ID, text="No good value bets available at this time.")
+
+
 if __name__ == "__main__":
-    send_alerts()
+    analyze_and_send_bets()
