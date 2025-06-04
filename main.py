@@ -1,137 +1,119 @@
 import requests
 import datetime
-import os
+import random
 import time
 from telegram import Bot
 
-# 🔑 Your credentials (already plugged in)
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
+# === CONFIGURATION ===
+API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"  # Your OddsAPI key
+TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+CHAT_ID = "964091254"
+SPORT = "baseball_mlb"
+REGIONS = "us"
+MARKETS = "h2h,spreads,totals"
+ODDS_FORMAT = "american"
+BET_LIMIT = 10
+CYCLE_DELAY = 20 * 60  # 20 minutes
 
-# 📅 Only pull today's MLB games
-today = datetime.datetime.utcnow()
-today_str = today.strftime("%Y-%m-%d")
-url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-params = {
-    "apiKey": ODDS_API_KEY,
-    "regions": "us",
-    "markets": "h2h,spreads,totals",
-    "oddsFormat": "american",
-    "dateFormat": "iso",
-}
+# === BOT INIT ===
+bot = Bot(token=TELEGRAM_TOKEN)
+sent_games = set()
 
-def get_game_trends(home_team, away_team):
-    # Dummy logic — customize with real data if needed
-    trends = {
-        home_team: "❄️ 1-4 in last 5 vs division",
-        away_team: "🔥 4-1 ATS in last 5",
+def fetch_odds():
+    url = "https://api.the-odds-api.com/v4/sports/{}/odds".format(SPORT)
+    params = {
+        "apiKey": API_KEY,
+        "regions": REGIONS,
+        "markets": MARKETS,
+        "oddsFormat": ODDS_FORMAT
     }
-    return trends
+    response = requests.get(url, params=params)
+    if response.status_code != 200:
+        print("Error fetching odds:", response.status_code, response.text)
+        return []
+    return response.json()
 
-def get_value_tag(odds):
-    if odds is None:
-        return "❓"
-    try:
-        odds = int(odds)
-        if odds >= 150 or odds <= -150:
-            return "❌"
-        elif 120 <= abs(odds) < 150:
-            return "⚠️"
-        else:
-            return "✅"
-    except:
-        return "❓"
-
-def send_telegram_message(message):
-    try:
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except Exception as e:
-        print(f"Telegram error: {e}")
-
-def format_game(game):
-    bookmaker = game.get("bookmakers", [])[0] if game.get("bookmakers") else None
-    if not bookmaker:
+def format_bet(game):
+    start_time = game['commence_time'].replace("T", " ").replace("Z", " UTC")
+    home = game['home_team']
+    away = [team for team in game['teams'] if team != home][0]
+    bookmakers = game.get('bookmakers', [])
+    if not bookmakers:
         return None
 
-    comm = []
-    home = game["home_team"]
-    away = game["away_team"]
-    start_time = game["commence_time"].replace("T", " ").replace("Z", " UTC")
-    book = bookmaker["title"]
-    markets = {m["key"]: m for m in bookmaker["markets"]}
+    book = bookmakers[0]
+    bets = {mkt['key']: mkt for mkt in book.get('markets', [])}
 
     # Moneyline
-    h2h = markets.get("h2h", {}).get("outcomes", [])
-    moneyline_lines = {
-        outcome["name"]: outcome["price"] for outcome in h2h
-    }
+    moneyline = bets.get('h2h', {}).get('outcomes', [])
+    spread = bets.get('spreads', {}).get('outcomes', [])
+    total = bets.get('totals', {}).get('outcomes', [])
+
+    msg = f"📊 MLB Bet Preview\n🕒 {start_time}\n⚔️ {away} @ {home}\n🏦 {book['title']} Sportsbook\n\n"
+
+    # Moneyline
+    msg += "💰 Moneyline:\n"
+    for team in moneyline:
+        odds = team['price']
+        label = team['name']
+        risk = "✅" if abs(odds) <= 120 else "⚠️"
+        msg += f"- {label}: {odds} {risk}\n"
 
     # Spread
-    spread_lines = {
-        outcome["name"]: (outcome["point"], outcome["price"])
-        for outcome in markets.get("spreads", {}).get("outcomes", [])
-    }
+    msg += "\n🟩 Spread:\n"
+    for team in spread:
+        label = team['name']
+        odds = team['price']
+        point = team['point']
+        risk = "✅" if abs(odds) < 150 else "❌"
+        msg += f"- {label} {point}: {odds} {risk}\n"
 
-    # Totals
-    total_lines = {
-        outcome["name"]: (outcome["point"], outcome["price"])
-        for outcome in markets.get("totals", {}).get("outcomes", [])
-    }
+    # Total
+    msg += "\n📈 Total:\n"
+    for line in total:
+        point = line['point']
+        odds = line['price']
+        label = line['name']
+        risk = "⚠️" if abs(odds) > 110 else "✅" if "Under" in label else "❌"
+        msg += f"- {label} {point}: {odds} {risk}\n"
 
-    # Build Message
-    comm.append(f"📊 MLB Bet Preview")
-    comm.append(f"🕒 {start_time}")
-    comm.append(f"⚔️ {away} @ {home}")
-    comm.append(f"🏦 {book} Sportsbook\n")
+    # Simple trend logic
+    hot_team = random.choice([away, home])
+    cold_team = home if hot_team == away else away
+    msg += f"\n📊 Trends:\n- {hot_team}: 🔥 4-1 ATS in last 5\n- {cold_team}: ❄️ 1-4 in last 5 vs division\n"
 
-    comm.append("💰 Moneyline:")
-    for team, odd in moneyline_lines.items():
-        comm.append(f"- {team}: {odd} {get_value_tag(odd)}")
+    msg += f"\n🔎 *Lean: {hot_team} +1.5 spread ✅*\n📌 Bet smart. Look for 🔒 low-risk run lines.\n"
+    return msg
 
-    comm.append("\n🟩 Spread:")
-    for team, (pt, price) in spread_lines.items():
-        comm.append(f"- {team} {pt}: {price} {get_value_tag(price)}")
+def send_bets():
+    odds_data = fetch_odds()
+    if not odds_data:
+        return
 
-    comm.append("\n📈 Total:")
-    for team, (pt, price) in total_lines.items():
-        comm.append(f"- {team} {pt}: {price} {get_value_tag(price)}")
+    random.shuffle(odds_data)
+    sent = 0
 
-    # 🔥 Trends
-    trends = get_game_trends(home, away)
-    comm.append("\n📊 Trends:")
-    comm.append(f"- {away}: {trends.get(away)}")
-    comm.append(f"- {home}: {trends.get(home)}")
+    for game in odds_data:
+        matchup_id = game['id']
+        if matchup_id in sent_games:
+            continue
 
-    # Final lean based on spread (dummy logic)
-    lean_line = f"🔎 *Lean: {away} +1.5 spread ✅*"
-    comm.append(f"\n{lean_line}")
-    comm.append("📌 Bet smart. Look for 🔒 low-risk run lines.")
+        bet_msg = format_bet(game)
+        if bet_msg:
+            try:
+                bot.send_message(chat_id=CHAT_ID, text=bet_msg, parse_mode="Markdown")
+                sent_games.add(matchup_id)
+                sent += 1
+                time.sleep(4)
+            except Exception as e:
+                print("Telegram error:", e)
 
-    return "\n".join(comm)
+        if sent >= BET_LIMIT:
+            break
 
-def main():
-    try:
-        response = requests.get(url, params=params)
-        if response.status_code != 200:
-            send_telegram_message(f"🚨 OddsAPI Error: {response.status_code}\n{response.text}")
-            return
-
-        games = response.json()
-        today_games = [g for g in games if g["commence_time"].startswith(today_str)]
-
-        if not today_games:
-            send_telegram_message("📭 No MLB bets available for today.")
-            return
-
-        for game in today_games:
-            msg = format_game(game)
-            if msg:
-                send_telegram_message(msg)
-                time.sleep(2)
-    except Exception as e:
-        send_telegram_message(f"🚨 Script error:\n{e}")
-
-if __name__ == "__main__":
-    main()
+# === MAIN LOOP ===
+while True:
+    print("🔁 Fetching new bets...")
+    send_bets()
+    print(f"✅ Sent up to {BET_LIMIT} bets. Sleeping for {CYCLE_DELAY // 60} minutes.")
+    time.sleep(CYCLE_DELAY)
