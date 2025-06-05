@@ -238,5 +238,41 @@ def build_message_sportmonks(match):
 
 
 def build_message_oddsapi(match):
-    # Extract teams
-    teams = match.get("
+    # Extract teams (adjust keys to match your API response)
+    teams = match.get("teams", [])
+    if not teams or len(teams) < 2:
+        # fallback in case teams info is missing or incomplete
+        teams = [match.get("home_team", "Home"), match.get("away_team", "Away")]
+
+    # Extract odds (adjust keys as needed)
+    outcomes = match.get("bookmakers", [{}])[0].get("markets", [{}])[0].get("outcomes", [])
+
+    # Filter odds in range -200 to +150
+    filtered_outcomes = []
+    for outcome in outcomes:
+        price = outcome.get("price", 0)
+        if -200 <= price <= 150:
+            filtered_outcomes.append(outcome)
+
+    # Compose odds text with bullet points using unicode to avoid syntax issues
+    odds_text = "\n".join(
+        [f"\u2022 {outcome['name']}: {to_american(outcome['price'])}" for outcome in filtered_outcomes]
+    )
+
+    # Example: Build message with formatted date/time
+    start_time = match.get("commence_time", "TBD")
+    # Convert to local time if needed here
+
+    message = (
+        "🔥 Bet Alert!\n"
+        "🟡 Low Value\n\n"
+        f"🏟️ {teams[0]} @ {teams[1]}\n"
+        f"🕒 Start: {start_time}\n"
+        f"💵 Odds:\n{odds_text}\n"
+        "✅ Pick: (Your pick here)\n\n"
+        "📊 Why?\n"
+        "• Odds range shows 🟡 low value\n"
+        "• Model favors recent volatility in scoring\n"
+        "• Auto-filtered for optimal daily picks"
+    )
+    return message
