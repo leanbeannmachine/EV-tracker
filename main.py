@@ -40,22 +40,22 @@ def is_in_range(american):
 
 # Pull SportMonks data
 def get_sportmonks_matches():
-    today = datetime.datetime.utcnow().date()
-    tomorrow = today + datetime.timedelta(days=1)
-    matches = []
+    today = datetime.utcnow().date()
+    tomorrow = today + timedelta(days=1)
+    url = f"https://api.sportmonks.com/v3/football/fixtures/between/{today}/{tomorrow}"
+    params = {
+        'api_token': 'pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG',
+        'include': 'localTeam,visitorTeam,odds,league'
+    }
 
-    for date in [today, tomorrow]:
-        url = f"https://api.sportmonks.com/v3/football/fixtures/date/{date}?api_token={SPORTMONKS_API_KEY}&include=localTeam,visitorTeam,odds,league"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            matches.extend(data.get('data', []))
-        except Exception as e:
-            print(f"❌ Error fetching SportMonks data for {date}: {e}")
-
-    return matches
-
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('data', [])
+    except Exception as e:
+        print(f"❌ Error fetching SportMonks data: {e}")
+        return []
 # Format individual match
 def format_match(match, highlight=False):
     home = match.get('localTeam', {}).get('data', {}).get('name', 'Unknown')
