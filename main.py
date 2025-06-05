@@ -143,3 +143,10 @@ def main():
         print(msg)
         send_telegram_message(msg)
         return
+if __name__ == "__main__":
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print(f"❌ Error in main loop: {e}")
+        time.sleep(900)  # wait 15 minutes before next run
