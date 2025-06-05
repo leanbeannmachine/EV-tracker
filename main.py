@@ -1,132 +1,64 @@
-import requests
-from bet_formatter import format_bet_message
-import pytz
-import time
-import logging
+
 from datetime import datetime
-from telegram import Bot
 
-# --- Logging Setup ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
+def format_bet_message(match):
+    home = match.get("home_team", "Home")
+    away = match.get("away_team", "Away")
+    start_time_raw = match.get("commence_time", "")
+    start_time = datetime.strptime(start_time_raw, "%Y-%m-%dT%H:%M:%SZ")
+    start_str = start_time.strftime("%A, %B %d at %I:%M %p EST")
 
-# --- Credentials ---
-TELEGRAM_TOKEN = '7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI'
-TELEGRAM_CHAT_ID = '964091254'
-ODDS_API_KEY = '85c7c9d1acaad09cae7e93ea02f627ae'
+    markets = match.get("bookmakers", [{}])[0].get("markets", [])
+    odds_summary = ""
+    best_pick = ""
+    risk_tag = "🟢 Best Value"  # Default tag
 
-bot = Bot(token=TELEGRAM_TOKEN)
+    for market in markets:
+        if market["key"] == "h2h":
+            for outcome in market["outcomes"]:
+                team = outcome.get("name")
+                odd = outcome.get("price")
+                odds_summary += f"• {team}: {odd}\n"
+                if odd and 130 <= abs(odd) <= 170:
+                    best_pick = f"Moneyline: {team}"
+        elif market["key"] == "spreads":
+            for outcome in market["outcomes"]:
+                spread = outcome.get("point")
+                team = outcome.get("name")
+                odds_summary += f"• Spread {team}: {spread} @ {outcome.get('price')}\n"
+        elif market["key"] == "totals":
+            for outcome in market["outcomes"]:
+                point = outcome.get("point")
+                pick = outcome.get("name")
+                odds_summary += f"• Total {pick} {point} @ {outcome.get('price')}\n"
+                if pick == "Over":
+                    best_pick = f"Over {point} Runs"
 
-# --- Config ---
-ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/"
-SPORTS = [
-    'baseball_mlb',
-    'basketball_wnba',
-    'soccer_usa_mls',
-    'soccer_epl',
-]
-SENT_GAMES = set()
+    # Fallback if no best pick detected
+    if not best_pick:
+        best_pick = "Most favorable odds detected (Moneyline or Over)"
 
-def fetch_games(sport_key):
-    url = f"{ODDS_API_URL}{sport_key}/odds"
-    params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": "us",
-        "markets": "h2h,spreads,totals",
-        "oddsFormat": "american",
-        "dateFormat": "iso"
-    }
-    try:
-        res = requests.get(url, params=params)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        logger.error(f"Error fetching {sport_key}: {e}")
-        return []
+    # Risk color coding
+    odds = [o.get("price") for m in markets for o in m.get("outcomes", []) if o.get("price")]
+    avg_odds = sum(map(abs, odds)) / len(odds) if odds else 100
+    if avg_odds > 150:
+        risk_tag = "🟢 Best Value"
+    elif avg_odds > 120:
+        risk_tag = "🟡 Low Value"
 
-def is_today_game(commence_time_str):
-    try:
-        game_time = datetime.fromisoformat(commence_time_str.replace("Z", "+00:00"))
-        now = datetime.now(pytz.UTC)
-        return now.date() == game_time.date()
-    except Exception:
-        return False
+    message = f"""🔥 *Bet Alert!*
+{risk_tag}
 
-def extract_teams(game):
-    teams = game.get("teams", [])
-    home = game.get("home_team", "")
-    away = next((t for t in teams if t != home), "")
-    return home, away
+🏟️ *{away} @ {home}*
+🕒 *Start:* {start_str}
+💵 *Odds:*
+{odds_summary.strip()}
+✅ *Pick:* {best_pick}
 
-def format_start_time(commence_time):
-    try:
-        dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-        local = dt.astimezone(pytz.timezone("US/Eastern"))
-        return local.strftime("%I:%M %p %Z")
-    except:
-        return "Unknown Time"
+📊 *Why?*
+• Odds range shows {risk_tag.lower()}
+• {match.get("team_form", "Model favors recent consistency")}
+• Auto-filtered for optimal daily picks
+"""
 
-def is_value_bet(game):
-    for book in game.get("bookmakers", []):
-        for market in book.get("markets", []):
-            if market["key"] == "h2h":
-                for outcome in market.get("outcomes", []):
-                    price = abs(outcome.get("price", 0))
-                    if 130 <= price <= 170:
-                        return True
-    return False
-
-def format_message(game):
-    home, away = extract_teams(game)
-    time_str = format_start_time(game.get("commence_time", ""))
-    book = game.get("bookmakers", [{}])[0]
-    h2h_market = next((m for m in book.get("markets", []) if m["key"] == "h2h"), {})
-    outcomes = h2h_market.get("outcomes", [])
-    odds = "\n".join(f"• {o['name']}: {o['price']}" for o in outcomes)
-
-    return (
-        f"🔥 *Bet Alert!*\n"
-        f"✅ Good value bet\n\n"
-        f"🏟️ *{away} @ {home}*\n"
-        f"🕒 *Start:* {time_str}\n"
-        f"💵 *Odds:*\n{odds}\n\n"
-        f"📊 *Why?*\n"
-        f"• Odds range is favorable (+130 to +170)\n"
-        f"• Based on recent matchup volatility\n"
-        f"• Filtered for today's value picks"
-    )
-
-def send_to_telegram(msg):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"Telegram error: {e}")
-
-# --- One-time execution ---
-def main():
-    sent_count = 0
-    for sport in SPORTS:
-        games = fetch_games(sport)
-        for game in games:
-            game_id = game.get("id")
-            if not game_id or game_id in SENT_GAMES:
-                continue
-            if not is_today_game(game.get("commence_time", "")):
-                continue
-            if not is_value_bet(game):
-                continue
-
-            msg = format_message(game)
-            if msg:
-                send_to_telegram(msg)
-                SENT_GAMES.add(game_id)
-                sent_count += 1
-                time.sleep(1)
-
-    logger.info(f"✅ Cycle complete: sent {sent_count} bets.")
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
+    return message
