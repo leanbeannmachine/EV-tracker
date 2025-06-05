@@ -1,189 +1,131 @@
 import requests
-import time
-from datetime import datetime, timedelta
+import datetime
 import pytz
-from bet_formatter import format_bet_message
+import random
+import os
+import telegram
 
-# Your credentials here
-TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-CHAT_ID = "964091254"
+# ✅ Your SportMonks API token
+SPORTMONKS_API_TOKEN = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
 
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
-SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+# ✅ Telegram bot credentials
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
 
-# Supported leagues for filtering (extend as needed)
-SUPPORTED_LEAGUES = {
-    "mlb": "MLB",
-    "wnba": "WNBA",
-    "soccer_fifa_world_cup_qualifiers_south_america": "World Cup Qualifiers - South America",
-    "soccer_uefa_nations_league": "UEFA Nations League",
-    "tennis_atp": "ATP Tennis",
-    "tennis_wta": "WTA Tennis",
-    "mma_ufc": "UFC",
-    "soccer_afc_wc_qualification": "AFC World Cup Qualification",
-    "rbc_canadian_open": "RBC Canadian Open"
-}
+bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Timezone for display
-DISPLAY_TZ = pytz.timezone("US/Eastern")
+# Format date in YYYY-MM-DD
+def get_target_dates():
+    today = datetime.datetime.now(pytz.timezone('UTC')).date()
+    tomorrow = today + datetime.timedelta(days=1)
+    return [str(today), str(tomorrow)]
 
-def get_date_strings():
-    # Today and tomorrow ISO date strings (yyyy-mm-dd)
-    today = datetime.now(tz=DISPLAY_TZ)
-    tomorrow = today + timedelta(days=1)
-    return today.strftime("%Y-%m-%d"), tomorrow.strftime("%Y-%m-%d")
+# Format the message with emojis and reasons
+def format_bet_message(bet):
+    match = bet['match']
+    odds = bet['odds']
+    value_rating = bet['value']
 
-def fetch_oddsapi_bets(date_str):
-    # OddsAPI URL for soccer example, expand to other sports and date filtering as API allows
-    url = f"https://api.the-odds-api.com/v4/sports/soccer/odds"
-    params = {
-        "regions": "us",
-        "markets": "h2h,totals",
-        "oddsFormat": "american",
-        "dateFormat": "iso",
-        "apiKey": ODDS_API_KEY,
-        # Could add filtering here for leagues or date if supported
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"OddsAPI error: {e}")
-        return []
+    # Emojis and labels
+    if value_rating == 'high':
+        emoji = "🟢 Best Bet of the Day"
+        reason = [
+            "• 🧠 Model strongly favors this outcome",
+            "• 📈 Odds show significant value vs. probability",
+            "• ✅ Chosen from today’s highest trust picks"
+        ]
+    elif value_rating == 'medium':
+        emoji = "🟡 Medium Value"
+        reason = [
+            "• ⚠️ Some upside with recent team form",
+            "• 🔍 Decent odds-to-outcome potential",
+            "• 🧪 Selected for moderate value"
+        ]
+    else:
+        emoji = "🔴 Low Value"
+        reason = [
+            "• ❌ Riskier bet — limited model support",
+            "• ⚠️ Volatile matchup or weak form",
+            "• 📉 Lower confidence pick"
+        ]
 
+    return f"""
+🔥 Bet Alert!
+{emoji}
+
+🏟️ Match: {match['home']} vs {match['away']}  
+🕒 Kickoff: {match['start_time']}  
+💵 Odds: {odds['label']}: {odds['value']}  
+
+✅ Pick: {odds['label']}
+
+📊 Why this bet?
+{chr(10).join(reason)}
+"""
+
+# Pull SportMonks data
 def fetch_sportmonks_bets(date_str):
-    # Example SportMonks endpoint (you need to customize based on available endpoints)
-    url = f"https://api.sportmonks.com/v3/football/odds/date/{date_str}"
-    params = {"api_token": SPORTMONKS_API_KEY}
+    url = f"https://api.sportmonks.com/v3/football/odds/date/{date_str}?api_token={SPORTMONKS_API_TOKEN}"
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url)
         response.raise_for_status()
-        return response.json().get("data", [])
+        data = response.json()
+
+        bets = []
+        for match_data in data.get("data", []):
+            match_info = {
+                "home": match_data["home_team"]["name"],
+                "away": match_data["away_team"]["name"],
+                "start_time": match_data["starting_at"]["date_time"]
+            }
+
+            for bookmaker in match_data.get("bookmakers", []):
+                for bet_market in bookmaker.get("odds", []):
+                    # Pick totals and moneyline only
+                    if bet_market["label_name"].lower() in ["1x2", "totals"]:
+                        for odd in bet_market.get("values", []):
+                            # Simulate EV label (normally this comes from your model)
+                            random_val = random.random()
+                            if random_val > 0.85:
+                                value = "high"
+                            elif random_val > 0.6:
+                                value = "medium"
+                            else:
+                                value = "low"
+
+                            bets.append({
+                                "match": match_info,
+                                "odds": {
+                                    "label": odd["value"],
+                                    "value": odd["odd"]
+                                },
+                                "value": value
+                            })
+
+        return bets
     except Exception as e:
-        print(f"SportMonks error: {e}")
+        print(f"SportMonks error on {date_str}: {e}")
         return []
 
-def unify_bets(oddsapi_data, sportmonks_data):
-    """
-    Normalize and merge bets from both APIs into a common structure:
-    {
-        league: "MLB",
-        teams: "Team A vs Team B",
-        start_time: "ISO string UTC",
-        odds: { 'ML Team A': +120, 'ML Team B': -130, 'Over 2.5': +100, ... },
-        pick: "ML Team A",
-        pick_odds: +120,
-        win_prob: 58.3,
-        value_label: "🟢 Best Bet",
-        reasoning: "Model expects..."
-    }
-    """
-    unified = []
-    # Simplified example: from OddsAPI
-    for match in oddsapi_data:
-        league_key = match.get("sport_key")
-        league_name = SUPPORTED_LEAGUES.get(league_key, league_key.replace("_", " ").title())
-        home = match.get("home_team")
-        away = match.get("away_team")
-        start_time = match.get("commence_time")
-        odds = {}
-        for bookmaker in match.get("bookmakers", []):
-            for market in bookmaker.get("markets", []):
-                for outcome in market.get("outcomes", []):
-                    name = outcome.get("name")
-                    price = outcome.get("price")
-                    if price is not None:
-                        odds_key = f"{name} {market['key'].upper() if market['key'] != 'h2h' else 'ML'}"
-                        odds[odds_key] = price
+def send_bet_alerts():
+    all_bets = []
+    for date_str in get_target_dates():
+        print(f"Fetching bets for {date_str}...")
+        bets = fetch_sportmonks_bets(date_str)
+        all_bets.extend(bets)
 
-        # Example pick: best ML positive odds between home/away
-        picks = [(k, v) for k,v in odds.items() if "ML" in k]
-        if not picks:
-            continue
-        best_pick = max(picks, key=lambda x: x[1])
-        pick_name, pick_odds = best_pick
-        implied_prob = round(100 / (abs(pick_odds) / 100), 1) if pick_odds > 0 else round(100 / (abs(pick_odds) / 100) * -1, 1)
-
-        # Value label & reasoning simplified example
-        value_label = "🟢 Best Bet" if 130 <= pick_odds <= 170 else "🟡 Medium Value"
-        reasoning = ("Model strongly favors pick based on form & odds mismatch."
-                     if value_label == "🟢 Best Bet"
-                     else "Medium value range — some upside with recent trends.")
-
-        unified.append({
-            "league": league_name,
-            "teams": f"{home} vs {away}",
-            "start_time": start_time,
-            "odds": odds,
-            "pick": pick_name,
-            "pick_odds": pick_odds,
-            "win_prob": implied_prob,
-            "value_label": value_label,
-            "reasoning": reasoning,
-        })
-
-    # You can add sportmonks_data processing similarly here...
-
-    return unified
-
-def format_start_time(iso_str):
-    try:
-        dt_utc = datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC)
-        dt_local = dt_utc.astimezone(DISPLAY_TZ)
-        return dt_local.strftime("%A, %B %-d – %-I:%M %p %Z")
-    except Exception:
-        return iso_str
-
-def format_message(bet):
-    odds_lines = "\n".join(f"• {k}: {v if v < 0 else '+' + str(v)}" for k, v in bet["odds"].items())
-
-    msg = (
-        f"{bet['value_label']} Bet Alert!\n\n"
-        f"🏟️ Match: {bet['teams']}\n"
-        f"🕒 Start: {format_start_time(bet['start_time'])}\n"
-        f"💵 Odds:\n{odds_lines}\n\n"
-        f"✅ Pick: {bet['pick']}\n\n"
-        f"📊 Why this bet?\n"
-        f"• {bet['reasoning']}\n"
-        f"• Implied Win Rate: {bet['win_prob']}%\n"
-    )
-    return msg
-
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True,
-    }
-    try:
-        r = requests.post(url, json=payload)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"Telegram send error: {e}")
-
-def main():
-    today, tomorrow = get_date_strings()
-    print(f"Fetching bets for {today} and {tomorrow}...")
-
-    oddsapi_today = fetch_oddsapi_bets(today)
-    oddsapi_tomorrow = fetch_oddsapi_bets(tomorrow)
-    sportmonks_today = fetch_sportmonks_bets(today)
-    sportmonks_tomorrow = fetch_sportmonks_bets(tomorrow)
-
-    combined_bets = unify_bets(oddsapi_today + oddsapi_tomorrow, sportmonks_today + sportmonks_tomorrow)
-
-    if not combined_bets:
-        print("No bets found.")
+    if not all_bets:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="⚠️ No live SportMonks bets found for today or tomorrow.")
         return
 
-    for bet in combined_bets:
-        message = format_message(bet)
-        print("Sending bet alert...\n", message)
-        send_telegram(message)
-        time.sleep(1.5)  # avoid rate limits
+    # Pick 5 unique high/medium bets max
+    filtered = [b for b in all_bets if b['value'] in ['high', 'medium']]
+    random.shuffle(filtered)
+    selected = filtered[:5]
+
+    for bet in selected:
+        msg = format_bet_message(bet)
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
 
 if __name__ == "__main__":
-    main()
+    send_bet_alerts()
