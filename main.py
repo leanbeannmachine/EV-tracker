@@ -92,14 +92,16 @@ def main():
     print(f"DEBUG: Fetched {len(matches)} matches")
 
     if not matches:
-        send_telegram_message("⚠️ No matches found for today or tomorrow. Check back later!")
+        msg = "⚠️ No matches found for today or tomorrow. Check back later!"
+        print(msg)
+        send_telegram_message(msg)
         return
 
     total_sent = 0
 
     for match in matches:
         odds_data = match.get('odds', {}).get('data', [])
-        print(f"DEBUG: Match {match['id']} odds: {[odd.get('value') for odd in odds_data]}")
+        print(f"DEBUG: Match {match.get('id')} odds: {[odd.get('value') for odd in odds_data]}")
 
         highlight = False
         odds_lines = []
@@ -116,7 +118,7 @@ def main():
                     highlight = True
 
         if odds_lines:
-            msg_hash = match['id']
+            msg_hash = match.get('id')
             if msg_hash in sent_hashes:
                 continue
             sent_hashes.add(msg_hash)
@@ -126,9 +128,18 @@ def main():
             flame = "🔥 BEST VALUE PICK!\n" if highlight else "💡 Smart Pick\n"
             full_message = f"{flame}{match_str}\n🎯 {odds_str}"
 
-            send_telegram_message(full_message)
+            print(f"Sending message for match {msg_hash}...")
+            try:
+                send_telegram_message(full_message)
+                print(f"✅ Message sent for match {msg_hash}")
+            except Exception as e:
+                print(f"❌ Failed to send Telegram message for match {msg_hash}: {e}")
+
             total_sent += 1
             time.sleep(1)
 
     if total_sent == 0:
-        send_telegram_message("😕 No value bets for today or tomorrow. Check back later!")
+        msg = "😕 No value bets for today or tomorrow. Check back later!"
+        print(msg)
+        send_telegram_message(msg)
+        return
