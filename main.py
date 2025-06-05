@@ -39,6 +39,9 @@ def is_in_range(american):
     return american is not None and 100 <= american <= 220
 
 # Pull SportMonks data
+from datetime import datetime, timedelta
+import requests
+
 def get_sportmonks_matches():
     today = datetime.utcnow().date()
     tomorrow = today + timedelta(days=1)
