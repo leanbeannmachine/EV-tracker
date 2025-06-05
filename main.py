@@ -3,6 +3,82 @@ import datetime
 import pytz
 import time
 
+def get_oddsapi_bets():
+    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
+    params = {
+        "apiKey": "85c7c9d1acaad09cae7e93ea02f627ae",
+        "regions": "us",
+        "markets": "h2h,spreads,totals",
+        "oddsFormat": "american"
+    }
+
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+
+    bets = []
+    for game in data:
+        for bookmaker in game.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                for outcome in market.get("outcomes", []):
+                    if outcome.get("price") is None:
+                        continue
+
+                    ev = float(outcome["price"])  # raw odds, assume we will apply value logic later
+                    bet = {
+                        "team1": game["home_team"],
+                        "team2": game["away_team"],
+                        "match_time": datetime.utcfromtimestamp(game["commence_time"]).strftime("%Y-%m-%d %H:%M:%S"),
+                        "odds": outcome["price"],
+                        "market": market["key"],
+                        "rating": "green" if ev >= 130 else "yellow" if ev >= 110 else "red",
+                        "value": ev - 100  # crude +EV approximation for now
+                    }
+                    bets.append(bet)
+    return bets
+
+def get_sportmonks_bets():
+    url = "https://api.sportmonks.com/v3/football/fixtures"
+    params = {
+        "api_token": "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH",
+        "include": "odds",
+        "date_from": datetime.now().strftime("%Y-%m-%d"),
+        "date_to": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    }
+
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json().get("data", [])
+
+    bets = []
+    for match in data:
+        if not match.get("odds"):
+            continue
+
+        home = match["home_team"]["name"]
+        away = match["away_team"]["name"]
+        match_time = match["starting_at"]["date_time"]
+        match_time_fmt = datetime.strptime(match_time, "%Y-%m-%d %H:%M:%S")
+
+        for odd in match["odds"]:
+            if odd.get("value") is None:
+                continue
+
+            value = float(odd["value"])
+            rating = "green" if value >= 130 else "yellow" if value >= 110 else "red"
+
+            bet = {
+                "team1": home,
+                "team2": away,
+                "match_time": match_time_fmt.strftime("%Y-%m-%d %H:%M:%S"),
+                "odds": value,
+                "market": odd.get("type"),
+                "rating": rating,
+                "value": value - 100
+            }
+            bets.append(bet)
+    return bets
+
 # YOUR KEYS
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
 ODDSAPI_KEY = "7b5d540e73c8790a95b84d3713e1a572"
