@@ -42,15 +42,19 @@ def is_in_range(american):
 def get_sportmonks_matches():
     today = datetime.datetime.utcnow().date()
     tomorrow = today + datetime.timedelta(days=1)
-    url = f"https://api.sportmonks.com/v3/football/fixtures/date/{today},{tomorrow}?api_token={SPORTMONKS_API_KEY}&include=localTeam,visitorTeam,odds,league"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('data', [])
-    except Exception as e:
-        print(f"❌ Error fetching SportMonks data: {e}")
-        return []
+    matches = []
+
+    for date in [today, tomorrow]:
+        url = f"https://api.sportmonks.com/v3/football/fixtures/date/{date}?api_token={SPORTMONKS_API_KEY}&include=localTeam,visitorTeam,odds,league"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            matches.extend(data.get('data', []))
+        except Exception as e:
+            print(f"❌ Error fetching SportMonks data for {date}: {e}")
+
+    return matches
 
 # Format individual match
 def format_match(match, highlight=False):
