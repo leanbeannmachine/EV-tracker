@@ -137,17 +137,18 @@ def filter_and_format_sportmonks_bets(matches):
         odds_text = "\n".join(odds_lines)
 
         message = (
-            f"🔥 Bet Alert!\n"
-            f"{value_indicator}\n\n"
-            f"🏟️ {home} @ {away}\n"
-            f"🕒 Start: {start_time}\n"
-            f"💵 Odds:\n{odds_text}\n"
-            f"✅ Pick: {pick_label}\n\n"
-            f"📊 Why?\n"
-            f"• Odds range shows {value_indicator.lower()}\n"
-            f"• Model favors recent volatility in scoring\n"
-            f"• Auto-filtered for optimal daily picks"
-        )
+    "🔥 Bet Alert!\n"
+    f"{value_indicator}\n\n"
+    f"🏟️ {home} @ {away}\n"
+    f"🕒 Start: {start_time}\n"
+    "💵 Odds:\n"
+    f"{odds_text}\n"
+    f"✅ Pick: {pick_label}\n\n"
+    "📊 Why?\n"
+    f"• Odds show {value_indicator.lower()}\n"
+    "• Recent matchups suggest edge\n"
+    "• Auto-filtered for EV range"
+)
 
         messages.append(message)
 
@@ -260,15 +261,4 @@ def filter_and_format_oddsapi_bets(matches):
 
         odds_text = "\n".join(odds_lines)
 
-            message = (
-                f"🔥 Bet Alert!\n"
-                f"{value_indicator}\n\n"
-                f"🏟️ {home} @ {away}\n"
-                f"🕒 Start: {start_time}\n"
-                f"💵 Odds:\n{odds_text}\n"
-                f"✅ Pick: {pick_label}\n\n"
-                f"📊 Why?\n"
-                f"• Odds show {value_indicator.lower()}\n"
-                f"• Recent matchups suggest edge\n"
-                f"• Auto-filtered for EV range"
-            )
+            
