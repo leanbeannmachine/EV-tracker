@@ -260,7 +260,7 @@ def filter_and_format_oddsapi_bets(matches):
 
         odds_text = "\n".join(odds_lines)
 
-                  message = (
+            message = (
                 f"🔥 Bet Alert!\n"
                 f"{value_indicator}\n\n"
                 f"🏟️ {home} @ {away}\n"
