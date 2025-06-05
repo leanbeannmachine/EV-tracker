@@ -5,7 +5,7 @@ import telegram
 
 # API Keys and Bot Config
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3nHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
 bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
@@ -26,14 +26,17 @@ def to_american(decimal):
         d = float(decimal)
         if d >= 2.0:
             return round((d - 1) * 100)
-        else:
+        elif d > 1:
             return round(-100 / (d - 1))
-    except:
+        else:
+            return None
+    except Exception as e:
+        print(f"❌ to_american conversion error: {e}")
         return None
 
-# Filter odds within range (loosened to 105–190)
+# Filter odds within range (lowered threshold)
 def is_in_range(american):
-    return american is not None and 105 <= american <= 190
+    return american is not None and 100 <= american <= 220
 
 # Pull SportMonks data
 def get_sportmonks_matches():
@@ -43,7 +46,8 @@ def get_sportmonks_matches():
     try:
         response = requests.get(url)
         response.raise_for_status()
-        return response.json().get('data', [])
+        data = response.json()
+        return data.get('data', [])
     except Exception as e:
         print(f"❌ Error fetching SportMonks data: {e}")
         return []
@@ -83,20 +87,33 @@ def main():
     matches = get_sportmonks_matches()
     total_sent = 0
 
+    if not matches:
+        print("⚠️ No matches found for today or tomorrow.")
+        send_telegram_message("⚠️ No matches found for today or tomorrow. Check back later!")
+        return
+
     for match in matches:
         odds_data = match.get('odds', {}).get('data', [])
+        if not odds_data:
+            print(f"DEBUG: No odds data for match id {match.get('id')}")
+            continue
+
         highlight = False
         odds_lines = []
 
         for odd in odds_data:
             label = odd.get('label', '').lower()
             val = odd.get('value', None)
-            if not val or label not in ['1', '2', 'x']:
-                continue
             am = to_american(val)
+
+            # Debug print all odds received
+            print(f"DEBUG: Match {match['id']} - {label.upper()} decimal: {val} american: {am}")
+
+            if label not in ['1', '2', 'x']:
+                continue
             if is_in_range(am):
                 odds_lines.append(f"{label.upper()}: +{am}")
-                if am >= 150:  # Slightly lower highlight threshold
+                if am >= 160:
                     highlight = True
 
         if odds_lines:
@@ -115,6 +132,7 @@ def main():
             time.sleep(1)
 
     if total_sent == 0:
+        print("😕 No value bets found in the filtered odds range.")
         send_telegram_message("😕 No value bets for today or tomorrow. Check back later!")
 
 if __name__ == "__main__":
