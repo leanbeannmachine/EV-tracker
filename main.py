@@ -98,7 +98,7 @@ def get_oddsapi_bets():
                             continue
 
                         pick_label = name
-                        odds_text = f"• {teams[0]}: {to_american(outcomes[0]['price'])}
+                        odds_text = f"• {teams[0]}: {to_american(outcomes[0]['price'])}"
 • {teams[1]}: {to_american(outcomes[1]['price'])}"
                         if label == "totals":
                             pick_label = f"{name} {market.get('point')}"
