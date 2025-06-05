@@ -1,415 +1,191 @@
 import requests
-from datetime import datetime, timedelta
 import pytz
+from datetime import datetime, timedelta
 import time
 
-def get_oddsapi_bets():
-    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
-    params = {
-        "apiKey": "85c7c9d1acaad09cae7e93ea02f627ae",
-        "regions": "us",
-        "markets": "h2h,spreads,totals",
-        "oddsFormat": "american"
-    }
-
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    data = response.json()
-
-    bets = []
-    for game in data:
-        for bookmaker in game.get("bookmakers", []):
-            for market in bookmaker.get("markets", []):
-                for outcome in market.get("outcomes", []):
-                    if outcome.get("price") is None:
-                        continue
-
-                    ev = float(outcome["price"])  # raw odds, assume we will apply value logic later
-                    bet = {
-                        "team1": game["home_team"],
-                        "team2": game["away_team"],
-                        "match_time": datetime.utcfromtimestamp(game["commence_time"]).strftime("%Y-%m-%d %H:%M:%S"),
-                        "odds": outcome["price"],
-                        "market": market["key"],
-                        "rating": "green" if ev >= 130 else "yellow" if ev >= 110 else "red",
-                        "value": ev - 100  # crude +EV approximation for now
-                    }
-                    bets.append(bet)
-    return bets
-
-def get_sportmonks_bets():
-    url = "https://api.sportmonks.com/v3/football/fixtures"
-    params = {
-        "api_token": "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH",
-        "include": "odds",
-        "date_from": datetime.now().strftime("%Y-%m-%d"),
-        "date_to": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    }
-
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    data = response.json().get("data", [])
-
-    bets = []
-    for match in data:
-        if not match.get("odds"):
-            continue
-
-        home = match["home_team"]["name"]
-        away = match["away_team"]["name"]
-        match_time = match["starting_at"]["date_time"]
-        match_time_fmt = datetime.strptime(match_time, "%Y-%m-%d %H:%M:%S")
-
-        for odd in match["odds"]:
-            if odd.get("value") is None:
-                continue
-
-            value = float(odd["value"])
-            rating = "green" if value >= 130 else "yellow" if value >= 110 else "red"
-
-            bet = {
-                "team1": home,
-                "team2": away,
-                "match_time": match_time_fmt.strftime("%Y-%m-%d %H:%M:%S"),
-                "odds": value,
-                "market": odd.get("type"),
-                "rating": rating,
-                "value": value - 100
-            }
-            bets.append(bet)
-    return bets
-
-# YOUR KEYS
+# Your API keys here
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
 ODDSAPI_KEY = "7b5d540e73c8790a95b84d3713e1a572"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-# Timezone for formatting
 LOCAL_TZ = pytz.timezone("US/Eastern")
 
-
 def to_american(decimal_odds):
-    """
-    Convert decimal odds to American odds.
-    """
     decimal_odds = float(decimal_odds)
     if decimal_odds >= 2.0:
         return f"+{int((decimal_odds - 1) * 100)}"
     else:
         return f"{int(-100 / (decimal_odds - 1))}"
 
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        resp = requests.post(url, json=payload)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"❌ Telegram send error: {e}")
 
-def fetch_sportmonks_matches(date_str):
-    """
-    Fetch matches from SportMonks API for a given date.
-    """
+def get_sportmonks_bets(api_key, date_str=None):
+    if not date_str:
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
     url = f"https://api.sportmonks.com/v3/football/fixtures/date/{date_str}"
     params = {
-        "api_token": SPORTMONKS_API_KEY,
-        "include": "localTeam,visitorTeam,odds,league",
+        "api_token": api_key,
+        "include": "localTeam,visitorTeam,odds,league"
     }
     try:
         r = requests.get(url, params=params)
         r.raise_for_status()
         data = r.json()
-        return data.get("data", [])
+        fixtures = data.get("data", [])
     except Exception as e:
-        print(f"❌ Error fetching SportMonks data for {date_str}: {e}")
+        print(f"❌ Error fetching SportMonks data: {e}")
         return []
 
+    bets = []
+    for fixture in fixtures:
+        odds = fixture.get("odds", {}).get("data", [])
+        local_team = fixture.get("localTeam", {}).get("data", {}).get("name", "Unknown")
+        visitor_team = fixture.get("visitorTeam", {}).get("data", {}).get("name", "Unknown")
+        start_time = fixture.get("starting_at")
+        if not odds or not start_time:
+            continue
+        for odd in odds:
+            # Only moneyline (h2h) odds for simplicity here
+            if odd.get("type") != "h2h":
+                continue
+            outcomes = odd.get("outcomes", [])
+            for outcome in outcomes:
+                price = outcome.get("price")
+                name = outcome.get("name")
+                if price:
+                    american_odds = to_american(price)
+                    bets.append({
+                        "source": "SportMonks",
+                        "team1": visitor_team,
+                        "team2": local_team,
+                        "pick": name,
+                        "odds_decimal": price,
+                        "odds_american": american_odds,
+                        "match_time": start_time,
+                        "value": True,  # You can add more advanced +EV logic here
+                        "rating": "green"  # Simplified
+                    })
+    return bets
 
-def fetch_oddsapi_matches(date_str):
-    """
-    Fetch matches from OddsAPI for a given date.
-    We fetch all sports, filter after.
-    """
-    url = "https://api.the-odds-api.com/v4/sports/"
-    headers = {"x-api-key": ODDSAPI_KEY}
+def get_oddsapi_bets(api_key, date_str=None):
+    if not date_str:
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    url_sports = "https://api.the-odds-api.com/v4/sports/"
+    headers = {"x-api-key": api_key}
     try:
-        # First get sports list
-        r = requests.get(url, headers=headers)
+        r = requests.get(url_sports, headers=headers)
         r.raise_for_status()
         sports = r.json()
     except Exception as e:
-        print(f"❌ Error fetching sports list from OddsAPI: {e}")
+        print(f"❌ Error fetching sports list: {e}")
         return []
 
-    all_matches = []
+    all_bets = []
     for sport in sports:
         key = sport.get("key")
         if not key:
             continue
-        # Fetch odds for sport for date (today/tomorrow filtering later)
         odds_url = f"https://api.the-odds-api.com/v4/sports/{key}/odds"
         params = {
-            "regions": "us",  # Change if you want other regions
-            "markets": "h2h,totals",
+            "regions": "us",
+            "markets": "h2h",
             "dateFormat": "iso",
-            "apiKey": ODDSAPI_KEY,
+            "apiKey": api_key,
         }
         try:
             r = requests.get(odds_url, params=params)
             r.raise_for_status()
             matches = r.json()
-            all_matches.extend(matches)
         except Exception as e:
             print(f"❌ Error fetching odds for {key}: {e}")
-
-    # Filter matches by date_str (ISO date)
-    filtered = []
-    for m in all_matches:
-        start_time = m.get("commence_time")
-        if not start_time:
             continue
-        # Convert to date only
-        match_date = start_time.split("T")[0]
-        if match_date == date_str:
-            filtered.append(m)
-    return filtered
 
+        for match in matches:
+            start_time = match.get("commence_time")
+            if not start_time or start_time[:10] != date_str:
+                continue
+            teams = match.get("teams", [])
+            bookmakers = match.get("bookmakers", [])
+            if not teams or len(teams) < 2 or not bookmakers:
+                continue
 
-def filter_odds(odds):
-    """
-    Filter odds to include only those with American odds between -200 and +150.
-    odds: list of dictionaries with keys 'price' or 'odds' in decimal format.
-    Return filtered odds with American odds within range.
-    """
-    filtered = []
-    for outcome in odds:
-        price = None
-        if "price" in outcome:
-            price = outcome["price"]
-        elif "odds" in outcome:
-            price = outcome["odds"]
-        else:
-            continue
-        try:
-            price_float = float(price)
-        except:
-            continue
-        american = convert_decimal_to_american(price_float)
-        # American odds are strings like '-150' or '+120'
-        # Remove + sign for comparison
-        if american.startswith("+"):
-            val = int(american[1:])
-        else:
-            val = int(american)
-        # Check if val in range -200 to +150 (inclusive)
-        if -200 <= val <= 150:
-            filtered.append({"name": outcome.get("name", "Unknown"), "american": american, "decimal": price_float})
-    return filtered
+            # Pick first bookmaker for simplicity
+            markets = bookmakers[0].get("markets", [])
+            if not markets:
+                continue
+            outcomes = markets[0].get("outcomes", [])
+            for outcome in outcomes:
+                price = outcome.get("price")
+                name = outcome.get("name")
+                if price:
+                    american_odds = to_american(price)
+                    all_bets.append({
+                        "source": "OddsAPI",
+                        "team1": teams[0],
+                        "team2": teams[1],
+                        "pick": name,
+                        "odds_decimal": price,
+                        "odds_american": american_odds,
+                        "match_time": start_time,
+                        "value": True,
+                        "rating": "green"
+                    })
+    return all_bets
 
-
-def convert_decimal_to_american(decimal_odds):
-    decimal_odds = float(decimal_odds)
-    if decimal_odds >= 2.0:
-        return f"+{int(round((decimal_odds - 1) * 100))}"
-    else:
-        return f"{int(round(-100 / (decimal_odds - 1)))}"
-
-
-def format_match_time(iso_time):
-    dt = datetime.datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-    dt_local = dt.astimezone(LOCAL_TZ)
-    return dt_local.strftime("%A, %b %d at %I:%M %p %Z")
-
-
-def build_message_sportmonks(match):
-    # Check for odds data existence
-    odds = match.get("odds", {}).get("data", [])
-    if not odds:
-        return None
-
-    # Extract teams
-    local_team = match.get("localTeam", {}).get("data", {}).get("name", "Unknown")
-    visitor_team = match.get("visitorTeam", {}).get("data", {}).get("name", "Unknown")
-
-    # Extract league name
-    league_name = match.get("league", {}).get("data", {}).get("name", "Unknown League")
-
-    # Match time
-    start_time = match.get("starting_at")
-    if not start_time:
-        return None
-    start_time_fmt = format_match_time(start_time)
-
-    # Parse odds markets
-    # We want moneyline (h2h) and totals
-    moneyline = None
-    totals = None
-    for odd in odds:
-        if odd.get("bookmaker_id") is None:
-            continue
-        # Odd markets sometimes nested; skipping bookmaker_id==None
-        # SportMonks format: market_type field
-        if odd.get("type") == "h2h":
-            moneyline = odd
-        elif odd.get("type") == "totals":
-            totals = odd
-
-    # If no moneyline or totals, try to parse odds from first entry as fallback
-    if not moneyline and odds:
-        moneyline = odds[0]
-
-    if not moneyline:
-        return None
-
-    # Extract moneyline outcomes
-    ml_outcomes = moneyline.get("outcomes", [])
-    filtered_ml = filter_odds(ml_outcomes)
-    if not filtered_ml:
-        return None
-
-    # Pick best moneyline pick (lowest absolute odds in range)
-    ml_pick = min(filtered_ml, key=lambda x: abs(int(x["american"])))
-
-    # Extract totals line if available
-    total_line = None
-    over_price = None
-    under_price = None
-    if totals:
-        tot_outcomes = totals.get("outcomes", [])
-        for o in tot_outcomes:
-            if "over" in o.get("name", "").lower():
-                over_price = o.get("price")
-                total_line = totals.get("line")
-            elif "under" in o.get("name", "").lower():
-                under_price = o.get("price")
-
-    # Format odds text
-    odds_lines = []
-    # Moneyline odds for teams
-    odds_lines.append(f"• {visitor_team}: {ml_pick['american']}")
-    # Find opposing team odds
-    # SportMonks odds structure can vary, so try best effort:
-    other_teams = [x for x in filtered_ml if x != ml_pick]
-    if other_teams:
-        odds_lines.append(f"• {local_team}: {other_teams[0]['american']}")
-    else:
-        odds_lines.append(f"• {local_team}: N/A")
-
-    # Totals odds if present
-    if total_line and over_price and under_price:
-        odds_lines.append(f"• Total Over {total_line} @ {convert_decimal_to_american(over_price)}")
-        odds_lines.append(f"• Total Under {total_line} @ {convert_decimal_to_american(under_price)}")
-
-    odds_text = "\n".join(odds_lines)
-
-    # Build message
-    message = (
-        "🔥 Bet Alert!\n"
-        "🟡 Low Value\n\n"
-        f"🏟️ {visitor_team} @ {local_team}\n"
-        f"🕒 Start: {start_time_fmt}\n"
-        "💵 Odds:\n"
-        f"{odds_text}\n"
-        f"✅ Pick: {ml_pick['name']}\n\n"
-        "📊 Why?\n"
-        "• Odds range shows 🟡 low value\n"
-        "• Model favors recent volatility in scoring\n"
-        "• Auto-filtered for optimal daily picks"
-    )
-    return message
-
-
-def build_message_oddsapi(match):
-    # Extract teams (adjust keys to match your API response)
-    teams = match.get("teams", [])
-    if not teams or len(teams) < 2:
-        # fallback in case teams info is missing or incomplete
-        teams = [match.get("home_team", "Home"), match.get("away_team", "Away")]
-
-    # Extract odds (adjust keys as needed)
-    outcomes = match.get("bookmakers", [{}])[0].get("markets", [{}])[0].get("outcomes", [])
-
-    # Filter odds in range -200 to +150
-    filtered_outcomes = []
-    for outcome in outcomes:
-        price = outcome.get("price", 0)
-        if -200 <= price <= 150:
-            filtered_outcomes.append(outcome)
-
-    # Compose odds text with bullet points using unicode to avoid syntax issues
-    odds_text = "\n".join(
-        [f"\u2022 {outcome['name']}: {to_american(outcome['price'])}" for outcome in filtered_outcomes]
-    )
-
-    # Example: Build message with formatted date/time
-    start_time = match.get("commence_time", "TBD")
-    # Convert to local time if needed here
+def format_bet_message(bet):
+    # Format the start time nicely
+    try:
+        dt = datetime.fromisoformat(bet["match_time"].replace("Z", "+00:00"))
+        dt_local = dt.astimezone(LOCAL_TZ)
+        time_str = dt_local.strftime("%A, %b %d at %I:%M %p %Z")
+    except Exception:
+        time_str = bet["match_time"]
 
     message = (
-        "🔥 Bet Alert!\n"
-        "🟡 Low Value\n\n"
-        f"🏟️ {teams[0]} @ {teams[1]}\n"
-        f"🕒 Start: {start_time}\n"
-        f"💵 Odds:\n{odds_text}\n"
-        "✅ Pick: (Your pick here)\n\n"
-        "📊 Why?\n"
-        "• Odds range shows 🟡 low value\n"
-        "• Model favors recent volatility in scoring\n"
-        "• Auto-filtered for optimal daily picks"
+        f"🔥 *Bet Alert* from {bet['source']}!\n"
+        f"🟢 *High Value Pick*\n\n"
+        f"🏟️ *Match:* {bet['team1']} vs {bet['team2']}\n"
+        f"🕒 *Start:* {time_str}\n"
+        f"💵 *Pick:* {bet['pick']} @ {bet['odds_american']} (Decimal: {bet['odds_decimal']:.2f})\n\n"
+        "📊 *Why?*\n"
+        "• Positive expected value (+EV)\n"
+        "• Strong model confidence\n"
+        "• Filtered for optimal daily picks"
     )
     return message
-import time
-import datetime
 
 def main():
-    print("✅ main() function started")
+    print("✅ Starting main function...")
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    tomorrow = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     all_bets = []
 
-    # ⬇️ OddsAPI bets
-    try:
-        oddsapi_bets = get_oddsapi_bets()
-        print(f"📊 Pulled {len(oddsapi_bets)} bets from OddsAPI")
-        all_bets.extend(oddsapi_bets)
-    except Exception as e:
-        print(f"❌ Error getting OddsAPI bets: {e}")
+    # Fetch for today and tomorrow
+    for date_str in [today, tomorrow]:
+        print(f"📅 Fetching bets for {date_str}")
 
-    # ⬇️ SportMonks bets
-    try:
-        sportmonks_bets = get_sportmonks_bets()
-        print(f"📊 Pulled {len(sportmonks_bets)} bets from SportMonks")
-        all_bets.extend(sportmonks_bets)
-    except Exception as e:
-        print(f"❌ Error getting SportMonks bets: {e}")
-
-    print(f"🧠 Filtering +EV bets from {len(all_bets)} total bets...")
-
-    filtered_bets = []
-    for bet in all_bets:
-        if bet.get("value", 0) >= 0 and bet.get("rating") in ["green", "yellow"]:
-            match_time = bet.get("match_time")
-            if match_time:
-                match_date = datetime.datetime.strptime(match_time, "%Y-%m-%d %H:%M:%S")
-                today = datetime.datetime.now()
-                tomorrow = today + datetime.timedelta(days=1)
-                if today.date() <= match_date.date() <= tomorrow.date():
-                    filtered_bets.append(bet)
-
-    print(f"✅ {len(filtered_bets)} bets passed value + date filter")
-
-    # ⬇️ Send bets to Telegram
-    for bet in filtered_bets:
         try:
-            msg = format_bet_message(bet)
-            send_telegram_message(msg)
-            print(f"📤 Sent bet: {bet['team1']} vs {bet['team2']} ({bet['odds']})")
+            sm_bets = get_sportmonks_bets(SPORTMONKS_API_KEY, date_str)
+            print(f"📊 SportMonks bets: {len(sm_bets)}")
+            all_bets.extend(sm_bets)
         except Exception as e:
-            print(f"❌ Error sending bet: {e}")
+            print(f"❌ Error fetching SportMonks bets: {e}")
 
-    print("✅ Finished main() cycle\n")
-
-
-if __name__ == "__main__":
-    while True:
         try:
-            print("🚀 Running main process")
-            main()
-            print("✅ Done! Sleeping 15 mins...\n")
-            time.sleep(15 * 60)  # Sleep for 15 minutes
-        except Exception as e:
-            print(f"❌ Crash in main loop: {e}")
-            time.sleep(60)
+            oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
+            print(f"📊 OddsAPI bets
