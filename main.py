@@ -89,18 +89,17 @@ def send_telegram_message(text):
 def main():
     sent_hashes = set()
     matches = get_sportmonks_matches()
-    total_sent = 0
+    print(f"DEBUG: Fetched {len(matches)} matches")
 
     if not matches:
-        print("⚠️ No matches found for today or tomorrow.")
         send_telegram_message("⚠️ No matches found for today or tomorrow. Check back later!")
         return
 
+    total_sent = 0
+
     for match in matches:
         odds_data = match.get('odds', {}).get('data', [])
-        if not odds_data:
-            print(f"DEBUG: No odds data for match id {match.get('id')}")
-            continue
+        print(f"DEBUG: Match {match['id']} odds: {[odd.get('value') for odd in odds_data]}")
 
         highlight = False
         odds_lines = []
@@ -108,16 +107,12 @@ def main():
         for odd in odds_data:
             label = odd.get('label', '').lower()
             val = odd.get('value', None)
-            am = to_american(val)
-
-            # Debug print all odds received
-            print(f"DEBUG: Match {match['id']} - {label.upper()} decimal: {val} american: {am}")
-
-            if label not in ['1', '2', 'x']:
+            if not val or label not in ['1', '2', 'x']:
                 continue
+            am = to_american(val)
             if is_in_range(am):
                 odds_lines.append(f"{label.upper()}: +{am}")
-                if am >= 160:
+                if am >= 150:
                     highlight = True
 
         if odds_lines:
@@ -136,8 +131,4 @@ def main():
             time.sleep(1)
 
     if total_sent == 0:
-        print("😕 No value bets found in the filtered odds range.")
         send_telegram_message("😕 No value bets for today or tomorrow. Check back later!")
-
-if __name__ == "__main__":
-    main()
