@@ -276,18 +276,64 @@ def build_message_oddsapi(match):
         "• Auto-filtered for optimal daily picks"
     )
     return message
+import time
+import datetime
+
 def main():
-    # Your main code here: fetch data, send Telegram messages, etc.
-    print("Running main process...")
-    # Call your fetch and message building functions here
-    # e.g.
-    # matches = fetch_sportmonks_matches(today_date)
-    # for match in matches:
-    #    msg = build_message_sportmonks(match)
-    #    send_telegram_message(msg)
+    print("✅ main() function started")
+
+    all_bets = []
+
+    # ⬇️ OddsAPI bets
+    try:
+        oddsapi_bets = get_oddsapi_bets()
+        print(f"📊 Pulled {len(oddsapi_bets)} bets from OddsAPI")
+        all_bets.extend(oddsapi_bets)
+    except Exception as e:
+        print(f"❌ Error getting OddsAPI bets: {e}")
+
+    # ⬇️ SportMonks bets
+    try:
+        sportmonks_bets = get_sportmonks_bets()
+        print(f"📊 Pulled {len(sportmonks_bets)} bets from SportMonks")
+        all_bets.extend(sportmonks_bets)
+    except Exception as e:
+        print(f"❌ Error getting SportMonks bets: {e}")
+
+    print(f"🧠 Filtering +EV bets from {len(all_bets)} total bets...")
+
+    filtered_bets = []
+    for bet in all_bets:
+        if bet.get("value", 0) >= 0 and bet.get("rating") in ["green", "yellow"]:
+            match_time = bet.get("match_time")
+            if match_time:
+                match_date = datetime.datetime.strptime(match_time, "%Y-%m-%d %H:%M:%S")
+                today = datetime.datetime.now()
+                tomorrow = today + datetime.timedelta(days=1)
+                if today.date() <= match_date.date() <= tomorrow.date():
+                    filtered_bets.append(bet)
+
+    print(f"✅ {len(filtered_bets)} bets passed value + date filter")
+
+    # ⬇️ Send bets to Telegram
+    for bet in filtered_bets:
+        try:
+            msg = format_bet_message(bet)
+            send_telegram_message(msg)
+            print(f"📤 Sent bet: {bet['team1']} vs {bet['team2']} ({bet['odds']})")
+        except Exception as e:
+            print(f"❌ Error sending bet: {e}")
+
+    print("✅ Finished main() cycle\n")
+
+
 if __name__ == "__main__":
-    import time
     while True:
-        main()
-        print("Waiting 15 minutes...")
-        time.sleep(15 * 60)
+        try:
+            print("🚀 Running main process")
+            main()
+            print("✅ Done! Sleeping 15 mins...\n")
+            time.sleep(15 * 60)  # Sleep for 15 minutes
+        except Exception as e:
+            print(f"❌ Crash in main loop: {e}")
+            time.sleep(60)
