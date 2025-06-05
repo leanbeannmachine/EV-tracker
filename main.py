@@ -41,30 +41,21 @@ def format_bet_message(match, pick_label, odds_text, start_time, value_indicator
     home = match.get('home_team')
     away = match.get('away_team')
     message = (
-        "🔥 Bet Alert!
-"
-        f"{value_indicator}
-
-"
-        f"🏟️ {home} @ {away}
-"
-        f"🕒 Start: {start_time}
-"
-        "💵 Odds:
-"
-        f"{odds_text}
-"
-        f"✅ Pick: {pick_label}
-
-"
-        "📊 Why?
-"
-        f"• Odds show {value_indicator.lower()}
-"
-        "• Recent matchups suggest edge
-"
-        "• Auto-filtered for EV range"
-    )
+    "🔥 Bet Alert!\n"
+    "🟡 Low Value\n"
+    "🏟️ Texas Rangers @ Tampa Bay Rays\n"
+    "🕒 Start: Thursday, June 05 at 09:43 PM EST\n"
+    "💵 Odds:\n"
+    "• Tampa Bay Rays: -144\n"
+    "• Texas Rangers: +122\n"
+    "• Total Over 8.5 @ -110\n"
+    "• Total Under 8.5 @ -110\n"
+    "✅ Pick: Over 8.5 Runs\n\n"
+    "📊 Why?\n"
+    "• Odds range shows 🟡 low value\n"
+    "• Model favors recent volatility in scoring\n"
+    "• Auto-filtered for optimal daily picks"
+)
     return message
 
 # Fetch value bets from OddsAPI
