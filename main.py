@@ -24,10 +24,7 @@ SPORTS = [
     'basketball_wnba',
     'soccer_usa_mls',
     'soccer_epl',
-    'soccer_uefa_euro_2024',
-    'soccer_uefa_champs_league',
-    'soccer_brazil_campeonato',
-    'soccer_sweden_allsvenskan'
+    # add any leagues you want, but confirm they have upcoming games
 ]
 SENT_GAMES = set()
 
