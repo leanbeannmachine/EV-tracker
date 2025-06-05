@@ -5,7 +5,7 @@ import telegram
 
 # API Keys and Bot Config
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3nHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
 bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
@@ -31,9 +31,9 @@ def to_american(decimal):
     except:
         return None
 
-# Filter odds within range
+# Filter odds within range (loosened to 105–190)
 def is_in_range(american):
-    return american is not None and 110 <= american <= 190
+    return american is not None and 105 <= american <= 190
 
 # Pull SportMonks data
 def get_sportmonks_matches():
@@ -96,7 +96,7 @@ def main():
             am = to_american(val)
             if is_in_range(am):
                 odds_lines.append(f"{label.upper()}: +{am}")
-                if am >= 160:
+                if am >= 150:  # Slightly lower highlight threshold
                     highlight = True
 
         if odds_lines:
