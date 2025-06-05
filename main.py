@@ -1,153 +1,266 @@
 import requests
+import time
 from datetime import datetime, timedelta
 import pytz
-import time
 
-# === CONFIG ===
+# API KEYS and Telegram info
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
+ODDSAPI_KEY = "7b5d540e73c8790a95b84d3713e1a572"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
-AMERICAN_ODDS_RANGE = (-200, 150)
 
-# === UTILS ===
-def send_telegram_message(message):
+SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football"
+ODDSAPI_BASE_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
+
+# Convert decimal odds to American odds
+def decimal_to_american(odds):
+    if odds >= 2.0:
+        return int(round((odds - 1) * 100))
+    else:
+        return int(round(-100 / (odds - 1)))
+
+def format_start_time(dt_str):
+    utc_time = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S%z")
+    est = pytz.timezone("US/Eastern")
+    est_time = utc_time.astimezone(est)
+    return est_time.strftime("%A, %B %d at %I:%M %p EST")
+
+def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
     try:
-        res = requests.post(url, json=data)
-        res.raise_for_status()
+        resp = requests.post(url, json=payload)
+        resp.raise_for_status()
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"❌ Telegram error: {e}")
 
-def to_american(decimal):
-    try:
-        if decimal >= 2:
-            return round((decimal - 1) * 100)
-        elif decimal > 1:
-            return round(-100 / (decimal - 1))
-    except:
-        return None
-
-def convert_to_est(utc_str):
-    try:
-        dt = datetime.fromisoformat(utc_str.replace("Z", ""))
-        dt_est = dt.astimezone(pytz.timezone("US/Eastern"))
-        return dt_est.strftime("%A, %B %d at %I:%M %p EST")
-    except:
-        return "Unknown"
-
-def value_label(am):
-    if am >= 120:
-        return "🟢 High Value"
-    elif am >= -120:
-        return "🟡 Low Value"
-    else:
-        return "🔴 Risky"
-
-# === SPORTMONKS ===
-def fetch_matches():
+def get_sportmonks_matches():
+    today = datetime.utcnow().date()
+    tomorrow = today + timedelta(days=1)
     matches = []
-    base_url = "https://api.sportmonks.com/v3/football/fixtures/date"
-    headers = {"Accept": "application/json"}
-    for offset in [0, 1]:  # today and tomorrow
-        date = (datetime.utcnow().date() + timedelta(days=offset)).isoformat()
-        url = f"{base_url}/{date}"
-        params = {
-            "api_token": SPORTMONKS_API_KEY,
-            "include": "localTeam,visitorTeam,odds,league"
-        }
+
+    for date in [today, tomorrow]:
+        url = (
+            f"{SPORTMONKS_BASE_URL}/fixtures/date/{date}"
+            f"?api_token={SPORTMONKS_API_KEY}"
+            f"&include=localTeam,visitorTeam,odds,league"
+        )
         try:
-            res = requests.get(url, headers=headers, params=params)
+            res = requests.get(url)
             res.raise_for_status()
-            matches.extend(res.json().get("data", []))
+            data = res.json()
+            if data.get("data"):
+                matches.extend(data["data"])
         except Exception as e:
-            print(f"❌ Error fetching SportMonks data: {e}")
+            print(f"❌ Error fetching SportMonks data for {date}: {e}")
+
     return matches
 
-# === MAIN ===
-def main():
-    matches = fetch_matches()
-    if not matches:
-        send_telegram_message("⚠️ No matches available today or tomorrow.")
-        return
+def get_oddsapi_matches():
+    params = {
+        "apiKey": ODDSAPI_KEY,
+        "regions": "us",
+        "markets": "h2h,totals",
+        "oddsFormat": "american",
+        "dateFormat": "iso",
+    }
+    try:
+        res = requests.get(ODDSAPI_BASE_URL, params=params)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        print(f"❌ Error fetching OddsAPI data: {e}")
+        return []
 
-    sent = 0
+def filter_and_format_sportmonks_bets(matches):
+    messages = []
+
     for match in matches:
-        league = match.get("league", {}).get("data", {}).get("name", "Unknown League")
-        home = match.get("localTeam", {}).get("data", {}).get("name", "Home")
-        away = match.get("visitorTeam", {}).get("data", {}).get("name", "Away")
-        time_str = match.get("time", {}).get("starting_at", {}).get("date_time", "")
-        est_time = convert_to_est(time_str)
-
-        odds_lines = []
-        pick = ""
-        best_value = -999
-        value_tier = "🟡 Low Value"
         odds_data = match.get("odds", {}).get("data", [])
-
-        for odd in odds_data:
-            label = odd.get("label", "").lower()
-            val = odd.get("value")
-            if val is None: continue
-            am = to_american(val)
-            if am is None or not (AMERICAN_ODDS_RANGE[0] <= am <= AMERICAN_ODDS_RANGE[1]):
-                continue
-
-            label_out = ""
-            if label in ["1", "home"]:
-                label_out = f"{home}: {am:+}"
-            elif label in ["2", "away"]:
-                label_out = f"{away}: {am:+}"
-            elif "over" in label:
-                label_out = f"Total Over {label.split()[-1]} @ {am:+}"
-                if am > best_value:
-                    best_value = am
-                    pick = f"Over {label.split()[-1]} Runs"
-            elif "under" in label:
-                label_out = f"Total Under {label.split()[-1]} @ {am:+}"
-                if am > best_value:
-                    best_value = am
-                    pick = f"Under {label.split()[-1]} Runs"
-
-            if am > best_value and "Total" not in label_out:
-                best_value = am
-                pick = label_out.split(":")[0]
-
-            if label_out:
-                odds_lines.append(f"• {label_out}")
-
-        if not odds_lines:
+        if not odds_data:
             continue
 
-        if best_value >= 120:
-            value_tier = "🟢 High Value"
-        elif best_value >= -120:
-            value_tier = "🟡 Low Value"
+        home = match["localTeam"]["data"]["name"]
+        away = match["visitorTeam"]["data"]["name"]
+        start_time = format_start_time(match["starting_at"])
+
+        odds_dict = {}
+        for odd in odds_data:
+            label = odd.get("label", "").lower()
+            value = odd.get("value")
+            if value is None:
+                continue
+            am = decimal_to_american(float(value))
+            if -200 <= am <= 150:
+                odds_dict[label] = am
+
+        if not odds_dict:
+            continue
+
+        # Pick logic simplified:
+        pick_label = None
+        pick_value = None
+        if "over" in odds_dict:
+            pick_label = f"Over 8.5 Runs"
+            pick_value = odds_dict["over"]
+        elif "1" in odds_dict:
+            pick_label = home
+            pick_value = odds_dict["1"]
+        elif "2" in odds_dict:
+            pick_label = away
+            pick_value = odds_dict["2"]
         else:
-            value_tier = "🔴 Risky"
+            continue
 
-        msg = f"""🔥 Bet Alert!
-{value_tier}
+        # Value label
+        value_indicator = "🟡 Low Value"
+        if -150 <= pick_value <= 100:
+            value_indicator = "🟢 Good Value"
+        elif pick_value < -200 or pick_value > 150:
+            value_indicator = "🔴 High Risk"
 
-🏟️ {home} @ {away}
-🕒 Start: {est_time}
-💵 Odds:
-{chr(10).join(odds_lines)}
-✅ Pick: {pick}
+        odds_lines = []
+        if "1" in odds_dict:
+            odds_lines.append(f"• {home}: {odds_dict['1']}")
+        if "2" in odds_dict:
+            odds_lines.append(f"• {away}: {odds_dict['2']}")
+        if "over" in odds_dict:
+            odds_lines.append(f"• Total Over 8.5 @ {odds_dict['over']}")
+        if "under" in odds_dict:
+            odds_lines.append(f"• Total Under 8.5 @ {odds_dict['under']}")
 
-📊 Why?
-• Odds range shows {value_tier}
-• Model favors recent volatility in scoring
-• Auto-filtered for optimal daily picks"""
+        odds_text = "\n".join(odds_lines)
 
-        send_telegram_message(msg)
-        time.sleep(1)
-        sent += 1
+        message = (
+            f"🔥 Bet Alert!\n"
+            f"{value_indicator}\n\n"
+            f"🏟️ {home} @ {away}\n"
+            f"🕒 Start: {start_time}\n"
+            f"💵 Odds:\n{odds_text}\n"
+            f"✅ Pick: {pick_label}\n\n"
+            f"📊 Why?\n"
+            f"• Odds range shows {value_indicator.lower()}\n"
+            f"• Model favors recent volatility in scoring\n"
+            f"• Auto-filtered for optimal daily picks"
+        )
 
-    if sent == 0:
-        send_telegram_message("🚫 No smart bets found in range (-200 to +150).")
+        messages.append(message)
 
-# === RUN ===
-if __name__ == "__main__":
-    main()
+    return messages
+
+def filter_and_format_oddsapi_bets(matches):
+    messages = []
+    for match in matches:
+        # Basic checks
+        home = match.get("home_team")
+        away = match.get("away_team")
+        commence_time = match.get("commence_time")
+        if not (home and away and commence_time):
+            continue
+
+        # Convert commence_time ISO string to datetime
+        try:
+            dt_obj = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+            est = pytz.timezone("US/Eastern")
+            est_time = dt_obj.astimezone(est)
+            start_time = est_time.strftime("%A, %B %d at %I:%M %p EST")
+        except Exception:
+            start_time = commence_time
+
+        # Extract odds from bookmakers (take first bookmaker with odds)
+        bookmakers = match.get("bookmakers", [])
+        if not bookmakers:
+            continue
+
+        odds_ml = {}
+        odds_totals = {}
+
+        # Find first bookmaker with h2h and totals
+        for book in bookmakers:
+            markets = book.get("markets", [])
+            for market in markets:
+                if market.get("key") == "h2h":
+                    outcomes = market.get("outcomes", [])
+                    for outcome in outcomes:
+                        name = outcome.get("name")
+                        price = outcome.get("price")
+                        if name == home:
+                            odds_ml["home"] = price
+                        elif name == away:
+                            odds_ml["away"] = price
+                elif market.get("key") == "totals":
+                    outcomes = market.get("outcomes", [])
+                    for outcome in outcomes:
+                        name = outcome.get("name").lower()
+                        price = outcome.get("price")
+                        if name in ["over", "under"]:
+                            odds_totals[name] = price
+
+            if odds_ml or odds_totals:
+                break
+
+        # Convert odds to American
+        def convert_odds(o):
+            if o is None:
+                return None
+            try:
+                if o >= 2.0:
+                    return int(round((o - 1) * 100))
+                else:
+                    return int(round(-100 / (o - 1)))
+            except:
+                return None
+
+        odds_ml_american = {k: convert_odds(v) for k, v in odds_ml.items()}
+        odds_totals_american = {k: convert_odds(v) for k, v in odds_totals.items()}
+
+        # Filter odds by your range
+        filtered_ml = {k: v for k, v in odds_ml_american.items() if v is not None and -200 <= v <= 150}
+        filtered_totals = {k: v for k, v in odds_totals_american.items() if v is not None and -200 <= v <= 150}
+
+        if not filtered_ml and not filtered_totals:
+            continue
+
+        # Pick logic: prefer Over total, else home ML, else away ML
+        pick_label = None
+        pick_value = None
+        if "over" in filtered_totals:
+            pick_label = "Over 8.5 Runs"
+            pick_value = filtered_totals["over"]
+        elif "home" in filtered_ml:
+            pick_label = home
+            pick_value = filtered_ml["home"]
+        elif "away" in filtered_ml:
+            pick_label = away
+            pick_value = filtered_ml["away"]
+        else:
+            continue
+
+        value_indicator = "🟡 Low Value"
+        if pick_value is not None:
+            if -150 <= pick_value <= 100:
+                value_indicator = "🟢 Good Value"
+            elif pick_value < -200 or pick_value > 150:
+                value_indicator = "🔴 High Risk"
+
+        odds_lines = []
+        if "home" in filtered_ml:
+            odds_lines.append(f"• {home}: {filtered_ml['home']}")
+        if "away" in filtered_ml:
+            odds_lines.append(f"• {away}: {filtered_ml['away']}")
+        if "over" in filtered_totals:
+            odds_lines.append(f"• Total Over 8.5 @ {filtered_totals['over']}")
+        if "under" in filtered_totals:
+            odds_lines.append(f"• Total Under 8.5 @ {filtered_totals['under']}")
+
+        odds_text = "\n".join(odds_lines)
+
+        message = (
+            f"🔥 Bet Alert!\n"
+            f"{value_indicator}\n\n"
+            f"
