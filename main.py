@@ -22,14 +22,13 @@ ODDS_API_URL = 'https://api.the-odds-api.com/v4/sports/'
 SPORTS = [
     'baseball_mlb',
     'basketball_wnba',
-    'soccer_usa_usl_league_two',
-    'soccer_usa_usl_w_league',
-    'soccer_usa_wpsl',
-    'soccer_australia_queensland_premier_league',
-    'soccer_australia_brisbane_premier_league',
-    'soccer_international_friendly_women'
+    'soccer_usa_mls',
+    'soccer_epl',
+    'soccer_uefa_euro_2024',
+    'soccer_uefa_champs_league',
+    'soccer_brazil_campeonato',
+    'soccer_sweden_allsvenskan'
 ]
-
 SENT_GAMES = set()
 
 def fetch_games(sport_key):
