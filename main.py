@@ -1,117 +1,144 @@
 import requests
 import datetime
-import pytz
-import os
-import random
+import time
+import telegram
 
-# ✅ Your SportMonks API key
+# Your API keys here
 SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
-
-# ✅ Your Telegram Bot info
-TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-# ✅ List of smart emojis by value
-VALUE_EMOJIS = {
-    "high": "🟢 Best Bet",
-    "medium": "🟡 Medium Value",
-    "low": "⚠️ Low Confidence"
+bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+
+# Emoji dictionaries
+TEAM_EMOJIS = {
+    "Arsenal": "🛡️",
+    "Chelsea": "🔵",
+    "Liverpool": "🟥",
+    "Manchester United": "🔴",
+    "Manchester City": "🔵",
+    "Real Madrid": "⚪",
+    "Barcelona": "🔵",
+    "Bayern Munich": "🔴",
+    # Add more teams as needed
 }
 
-def fetch_sportmonks_bets():
-    bets = []
-    base_url = "https://api.sportmonks.com/v3/football/odds/date/{}?api_token=" + SPORTMONKS_API_KEY
+LEAGUE_EMOJIS = {
+    8: "🏆",    # Premier League
+    72: "⚽",   # Eredivisie
+    82: "🥨",   # Bundesliga
+    301: "🥖",  # Ligue 1
+    384: "🍕",  # Serie A
+    564: "🎉",  # La Liga
+}
 
-    today = datetime.datetime.now(pytz.UTC).date()
-    for i in range(3):  # today + 2 days ahead
-        date_str = today + datetime.timedelta(days=i)
-        url = base_url.format(date_str)
+def get_oddsapi_matches():
+    url = f"https://api.the-odds-api.com/v4/sports/soccer_epl/odds?apiKey={ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error fetching OddsAPI data: {e}")
+        return []
+
+def get_sportmonks_matches():
+    url = f"https://api.sportmonks.com/v3/football/fixtures?api_token={SPORTMONKS_API_KEY}&include=localTeam,visitorTeam,odds"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('data', [])
+    except Exception as e:
+        print(f"Error fetching SportMonks data: {e}")
+        return []
+
+def format_match(match):
+    home = match['home_team']['name'] if 'home_team' in match else match.get('localTeam', {}).get('data', {}).get('name', 'Unknown')
+    away = match['away_team']['name'] if 'away_team' in match else match.get('visitorTeam', {}).get('data', {}).get('name', 'Unknown')
+
+    # Add emojis for teams if found, else default soccer ball
+    home_emoji = TEAM_EMOJIS.get(home, "⚽")
+    away_emoji = TEAM_EMOJIS.get(away, "⚽")
+
+    # DateTime parsing depending on source
+    time_utc = match.get('starting_at', {}).get('date_time_utc') or match.get('time', {}).get('starting_at') or match.get('starting_at')
+    if not time_utc:
+        time_utc = match.get('time', {}).get('starting_at') or match.get('starting_at')
+    if isinstance(time_utc, str):
         try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
+            match_time = datetime.datetime.strptime(time_utc, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            match_time = datetime.datetime.utcnow()
+    else:
+        match_time = datetime.datetime.utcnow()
+    match_time_str = match_time.strftime("%Y-%m-%d %H:%M UTC")
 
-            if not data.get("data"):
-                continue
+    # League emoji fallback
+    league_id = None
+    if 'league' in match and match['league']:
+        league_id = match['league'].get('id')
+    elif 'league_id' in match:
+        league_id = match['league_id']
+    league_emoji = LEAGUE_EMOJIS.get(league_id, "⚽")
 
-            for game in data["data"]:
-                if not game.get("odds"):
-                    continue
-                match = game.get("fixture", {})
-                odds_data = game.get("odds", [])[0]  # First bookmaker
+    return f"{league_emoji} <b>{home_emoji} {home} vs {away_emoji} {away}</b>\n🕒 {match_time_str}"
 
-                # Extract odds
-                ml = odds_data.get("markets", {}).get("1X2", {})
-                over_under = odds_data.get("markets", {}).get("over_under", {})
-
-                if not ml or not over_under:
-                    continue
-
-                home_team = match.get("participants", [{}])[0].get("name", "Home")
-                away_team = match.get("participants", [{}])[-1].get("name", "Away")
-                start_time = match.get("starting_at", {}).get("date_time")
-
-                pick_type = random.choice(["home", "over"])
-                if pick_type == "home":
-                    pick = f"{home_team} ML"
-                    value = "high"
-                else:
-                    pick = "Over 2.5 Goals"
-                    value = "medium"
-
-                bet_message = f"""
-🔥 Bet Alert!
-{VALUE_EMOJIS[value]}
-
-🏟️ Match: {home_team} vs {away_team}
-🕒 Kickoff: {format_datetime(start_time)}
-💵 Odds:
-• {home_team} ML: {ml.get('home', {}).get('odds', 'N/A')}
-• {away_team} ML: {ml.get('away', {}).get('odds', 'N/A')}
-• Over 2.5: {over_under.get('over_2.5', {}).get('odds', 'N/A')}
-• Under 2.5: {over_under.get('under_2.5', {}).get('odds', 'N/A')}
-
-✅ Pick: {pick}
-
-📊 Why this bet?
-• {VALUE_EMOJIS[value]} — selected by auto model based on matchup strength
-• 📈 High form edge / recent trends
-• 🤖 Pulled from SportMonks live feed
-"""
-                bets.append(bet_message.strip())
-
-        except requests.exceptions.RequestException as e:
-            print(f"SportMonks error: {e}")
-
-    return bets
-
-def format_datetime(iso_str):
-    dt = datetime.datetime.fromisoformat(iso_str).astimezone(pytz.timezone("US/Eastern"))
-    return dt.strftime("%A, %B %d – %I:%M %p EST")
+def format_bet(odds):
+    # Example format for American odds and bet types
+    if odds is None:
+        return ""
+    line = ""
+    if 'point' in odds:
+        line += f"Line: {odds['point']} "
+    if 'odds' in odds:
+        line += f"Odds: {odds['odds']} "
+    return line.strip()
 
 def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
     try:
-        res = requests.post(url, json=payload)
-        res.raise_for_status()
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode=telegram.ParseMode.HTML)
+        print("Sent message to Telegram")
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"Error sending Telegram message: {e}")
 
 def main():
-    print("📡 Fetching SportMonks value bets...")
-    bets = fetch_sportmonks_bets()
+    oddsapi_matches = get_oddsapi_matches()
+    sportmonks_matches = get_sportmonks_matches()
 
-    if bets:
-        selected_bets = bets[:5]  # send max 5
-        for bet in selected_bets:
-            send_telegram_message(bet)
-    else:
-        send_telegram_message("⚠️ No live SportMonks bets found for today or next 2 days.\nCheck back soon!")
+    messages = []
+
+    # Process OddsAPI matches
+    for match in oddsapi_matches:
+        msg = format_match(match)
+        # Include odds here if you want, simplified example:
+        if 'bookmakers' in match and match['bookmakers']:
+            best_bookmaker = match['bookmakers'][0]
+            markets = best_bookmaker.get('markets', [])
+            for market in markets:
+                if market['key'] == 'h2h':
+                    odds_str = " | ".join([f"{outcome['name']}: {outcome['price']}" for outcome in market['outcomes']])
+                    msg += f"\n🎯 {odds_str}"
+        messages.append(msg)
+
+    # Process SportMonks matches
+    for match in sportmonks_matches:
+        msg = format_match(match)
+        # Add odds from SportMonks if present
+        odds_data = match.get('odds', {}).get('data', [])
+        if odds_data:
+            odds_str = []
+            for odd in odds_data:
+                label = odd.get('label', 'Bet')
+                value = odd.get('value', '')
+                odds_str.append(f"{label}: {value}")
+            msg += "\n🎯 " + " | ".join(odds_str)
+        messages.append(msg)
+
+    # Send each message to Telegram with a small pause to avoid flooding
+    for message in messages:
+        send_telegram_message(message)
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
