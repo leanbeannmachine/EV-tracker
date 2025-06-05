@@ -276,10 +276,18 @@ def build_message_oddsapi(match):
         "• Auto-filtered for optimal daily picks"
     )
     return message
-if __name__ == "__main__":
+def main():
+    # Your main code here: fetch data, send Telegram messages, etc.
+    print("Running main process...")
+    # Call your fetch and message building functions here
+    # e.g.
+    # matches = fetch_sportmonks_matches(today_date)
+    # for match in matches:
+    #    msg = build_message_sportmonks(match)
+    #    send_telegram_message(msg)
+   if __name__ == "__main__":
     import time
-
     while True:
         main()
-        print("Waiting 15 minutes before next run...")
-        time.sleep(15 * 60)  # Sleep for 15 minutes
+        print("Waiting 15 minutes...")
+        time.sleep(15 * 60) 
