@@ -285,9 +285,9 @@ def main():
     # for match in matches:
     #    msg = build_message_sportmonks(match)
     #    send_telegram_message(msg)
-   if __name__ == "__main__":
+if __name__ == "__main__":
     import time
     while True:
         main()
         print("Waiting 15 minutes...")
-        time.sleep(15 * 60) 
+        time.sleep(15 * 60)
