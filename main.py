@@ -1,116 +1,155 @@
 import requests
 import pytz
-import logging
 import time
+import logging
 from datetime import datetime
 from telegram import Bot
 
-# --- CONFIG ---
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
-REGIONS = "us"
-MARKETS = "h2h,spreads,totals"
-SPORT = "baseball_mlb"
-CYCLE_INTERVAL = 15 * 60  # 15 minutes
-
-# --- INIT ---
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+# Setup logging
 logging.basicConfig(level=logging.INFO)
-sent_bets = set()
+logger = logging.getLogger()
 
-# --- FETCH DATA ---
-def fetch_today_games():
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
+# Telegram Config
+TELEGRAM_TOKEN = '7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI'
+TELEGRAM_CHAT_ID = '964091254'
+bot = Bot(token=TELEGRAM_TOKEN)
+
+# API Configs
+ODDS_API_KEY = '85c7c9d1acaad09cae7e93ea02f627ae'
+ODDS_API_URL = 'https://api.the-odds-api.com/v4/sports/'
+
+# Leagues to monitor
+SPORTS = [
+    'baseball_mlb',
+    'basketball_wnba',
+    'soccer_usa_usl_league_two',
+    'soccer_usa_usl_w_league',
+    'soccer_usa_wpsl',
+    'soccer_australia_queensland_premier_league',
+    'soccer_australia_brisbane_premier_league',
+    'soccer_international_friendly_women'
+]
+
+SENT_GAMES = set()
+
+def fetch_games(sport_key):
+    url = f"{ODDS_API_URL}{sport_key}/odds"
     params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": REGIONS,
-        "markets": MARKETS,
-        "oddsFormat": "american",
-        "dateFormat": "iso"
+        'apiKey': ODDS_API_KEY,
+        'regions': 'us',
+        'markets': 'h2h,spreads,totals',
+        'oddsFormat': 'american',
+        'dateFormat': 'iso'
     }
     try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        games = response.json()
-        today = datetime.now(pytz.UTC).date()
-        return [g for g in games if datetime.fromisoformat(g['commence_time'][:-1]).date() == today]
+        res = requests.get(url, params=params)
+        res.raise_for_status()
+        return res.json()
     except Exception as e:
-        logging.error(f"Error fetching games: {e}")
+        logger.error(f"Error fetching {sport_key}: {e}")
         return []
 
-# --- FORMAT ---
+def is_today_game(game_time_str):
+    try:
+        game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+        now = datetime.now(pytz.UTC)
+        return game_time.date() == now.date()
+    except Exception:
+        return False
+
+def is_valid_team_data(game):
+    teams = game.get('teams', [])
+    return teams and len(teams) == 2
+
+def extract_team_names(game):
+    teams = game.get('teams', [])
+    home = game.get('home_team', '')
+    away = next((t for t in teams if t != home), '')
+    return home, away
+
+def format_time(commence_time):
+    try:
+        dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+        est = dt.astimezone(pytz.timezone('US/Eastern'))
+        return est.strftime("%I:%M %p %Z")
+    except:
+        return "Unknown Time"
+
+def is_value_bet(game):
+    try:
+        for book in game.get('bookmakers', []):
+            for market in book.get('markets', []):
+                if market['key'] == 'h2h':
+                    odds = [outcome['price'] for outcome in market['outcomes']]
+                    if any(abs(o) >= 130 and abs(o) <= 170 for o in odds):
+                        return True
+    except:
+        pass
+    return False
+
 def format_bet_message(game):
     try:
-        teams = game.get('teams', [])
-        if not teams or len(teams) < 2:
-            raise ValueError("Not enough teams info")
-        home = game.get('home_team', teams[0])
-        away = [t for t in teams if t != home][0]
+        home, away = extract_team_names(game)
+        start_time = format_time(game['commence_time'])
+        book = game['bookmakers'][0]
+        h2h_odds = next((m['outcomes'] for m in book['markets'] if m['key'] == 'h2h'), [])
+        odds_display = '\n'.join([f"• {o['name']}: {o['price']}" for o in h2h_odds])
 
-        start_time = datetime.fromisoformat(game['commence_time'][:-1]).astimezone(pytz.timezone("US/Eastern"))
-        time_str = start_time.strftime("%I:%M %p %Z")
-        bookmaker = next((b for b in game.get("bookmakers", []) if b.get("markets")), None)
-        if not bookmaker:
-            raise ValueError("No bookmaker data")
+        quality = "✅ Good value" if is_value_bet(game) else "⚠️ Medium risk"
 
-        lines = []
-        for market in bookmaker.get("markets", []):
-            if market['key'] == 'h2h':
-                for o in market['outcomes']:
-                    lines.append(f"💰 ML: {o['name']} @ {o['price']}")
-            elif market['key'] == 'spreads':
-                for o in market['outcomes']:
-                    lines.append(f"📏 Spread: {o['name']} {o.get('point', '')} @ {o['price']}")
-            elif market['key'] == 'totals':
-                for o in market['outcomes']:
-                    lines.append(f"🔥 Total ({o['name']}): {o.get('point', '')} @ {o['price']}")
-
-        key = f"{away} @ {home} - {time_str}"
-        if key in sent_bets:
-            return None
-
-        sent_bets.add(key)
-
-        text = (
-            f"⚾️ *MLB Value Bet Alert!*\n"
-            f"{away} @ {home}\n"
-            f"🕒 Time: {time_str}\n"
-            f"🔎 Bookmaker: {bookmaker.get('title', 'N/A')}\n\n" +
-            "\n".join(lines) + "\n\n"
-            f"✅ *Reasoning:* Based on sharp line movement, recent form, and odds value.\n"
-            f"⚖️ Filtered for low variance and realistic edge.\n"
-            f"🟢 Bet Quality: HIGH\n"
+        msg = (
+            f"🔥 *Bet Alert!*\n"
+            f"{quality}\n\n"
+            f"🏟️ *{away} @ {home}*\n"
+            f"🕒 *Start:* {start_time}\n"
+            f"💵 *Odds:*\n{odds_display}\n\n"
+            f"📊 *Why?*\n"
+            f"• Recent form trends support volatility\n"
+            f"• Matchup edges based on last 5 games\n"
+            f"• Fair odds window detected (130–170)\n"
         )
-
-        return text
+        return msg
     except Exception as e:
-        logging.error(f"Error formatting bet message: {e}")
+        logger.error(f"Error formatting bet message: {e}")
         return None
 
-# --- MAIN LOOP ---
-def run():
-    while True:
-        logging.info("Fetching new games...")
-        games = fetch_today_games()
-        if games:
-            count = 0
-            for game in games:
-                message = format_bet_message(game)
-                if message:
-                    try:
-                        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
-                        count += 1
-                        time.sleep(2)
-                    except Exception as e:
-                        logging.error(f"Telegram error: {e}")
-        else:
-            logging.info("No games found.")
+def send_to_telegram(text):
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Telegram error: {e}")
 
-        logging.info(f"Cycle complete: sent {len(sent_bets)} bets.")
-        logging.info("Sleeping for 15 minutes...\n")
-        time.sleep(CYCLE_INTERVAL)
+def main():
+    total_sent = 0
+    for sport in SPORTS:
+        games = fetch_games(sport)
+        for game in games:
+            game_id = game.get('id')
+            if not game_id or game_id in SENT_GAMES:
+                continue
+            if not is_today_game(game.get('commence_time', '')):
+                continue
+            if not is_valid_team_data(game):
+                continue
+            if not is_value_bet(game):
+                continue
 
-# --- RUN ---
+            msg = format_bet_message(game)
+            if msg:
+                send_to_telegram(msg)
+                SENT_GAMES.add(game_id)
+                total_sent += 1
+                time.sleep(2)  # prevent rate limits
+
+    logger.info(f"Cycle complete: sent {total_sent} bets.")
+    logger.info("Sleeping for 15 minutes...")
+    time.sleep(900)  # 15 minutes
+    main()
+
 if __name__ == "__main__":
-    run()
+    try:
+        main()
+    except Exception as e:
+        logger.error(f"Unhandled error: {e}")
+        time.sleep(60)
+        main()
