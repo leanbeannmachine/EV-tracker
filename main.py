@@ -1,155 +1,153 @@
 import requests
-import datetime
+from datetime import datetime, timedelta
+import pytz
 import time
-import telegram
 
-# API Keys and Bot Config
+# === CONFIG ===
 SPORTMONKS_API_KEY = "pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
+AMERICAN_ODDS_RANGE = (-200, 150)
 
-bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-
-# Emojis
-TEAM_EMOJIS = {
-    "Arsenal": "🛡️", "Chelsea": "🔵", "Liverpool": "🟥", "Manchester United": "🔴",
-    "Manchester City": "🔷", "Real Madrid": "⚪", "Barcelona": "🔵", "Bayern Munich": "🔴",
-    "Juventus": "⚫", "PSG": "🔴", "AC Milan": "⚫", "Inter Milan": "🔵", "Tottenham": "⚪",
-}
-LEAGUE_EMOJIS = {
-    8: "🏆", 72: "🇳🇱", 82: "🇩🇪", 301: "🇫🇷", 384: "🇮🇹", 564: "🇪🇸", 501: "🇺🇸"
-}
-
-# Convert decimal odds to American odds
-def to_american(decimal):
+# === UTILS ===
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        d = float(decimal)
-        if d >= 2.0:
-            return round((d - 1) * 100)
-        elif d > 1:
-            return round(-100 / (d - 1))
-        else:
-            return None
-    except Exception as e:
-        print(f"❌ to_american conversion error: {e}")
-        return None
-
-# Filter odds within range (lowered threshold)
-def is_in_range(american):
-    return american is not None and 100 <= american <= 220
-
-# Pull SportMonks data
-from datetime import datetime, timedelta
-import requests
-
-def get_sportmonks_matches():
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
-    url = f"https://api.sportmonks.com/v3/football/fixtures/between/{today}/{tomorrow}"
-    params = {
-        'api_token': 'pt70HsJAeICOY3nWH8bLDtQFPk4kMDz0PHF9ZvqfFuhseXsk10Xfirbh4pAG',
-        'include': 'localTeam,visitorTeam,odds,league'
-    }
-
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('data', [])
-    except Exception as e:
-        print(f"❌ Error fetching SportMonks data: {e}")
-        return []
-# Format individual match
-def format_match(match, highlight=False):
-    home = match.get('localTeam', {}).get('data', {}).get('name', 'Unknown')
-    away = match.get('visitorTeam', {}).get('data', {}).get('name', 'Unknown')
-    league = match.get('league', {}).get('data', {}).get('id', None)
-    league_emoji = LEAGUE_EMOJIS.get(league, "⚽")
-    home_emoji = TEAM_EMOJIS.get(home, "⚽")
-    away_emoji = TEAM_EMOJIS.get(away, "⚽")
-
-    time_utc = match.get('starting_at', {}).get('date_time_utc')
-    try:
-        match_time = datetime.datetime.strptime(time_utc, "%Y-%m-%d %H:%M:%S")
-    except:
-        match_time = datetime.datetime.utcnow()
-
-    match_time_str = match_time.strftime("%Y-%m-%d %H:%M UTC")
-    bold = "<b>" if highlight else ""
-    close = "</b>" if highlight else ""
-
-    return f"{league_emoji} {bold}{home_emoji} {home} vs {away_emoji} {away}{close}\n🕒 {match_time_str}"
-
-# Send message to Telegram
-def send_telegram_message(text):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode=telegram.ParseMode.HTML)
+        res = requests.post(url, json=data)
+        res.raise_for_status()
         print("✅ Sent to Telegram")
     except Exception as e:
         print(f"❌ Telegram error: {e}")
 
-# Main logic
-def main():
-    sent_hashes = set()
-    matches = get_sportmonks_matches()
-    print(f"DEBUG: Fetched {len(matches)} matches")
+def to_american(decimal):
+    try:
+        if decimal >= 2:
+            return round((decimal - 1) * 100)
+        elif decimal > 1:
+            return round(-100 / (decimal - 1))
+    except:
+        return None
 
+def convert_to_est(utc_str):
+    try:
+        dt = datetime.fromisoformat(utc_str.replace("Z", ""))
+        dt_est = dt.astimezone(pytz.timezone("US/Eastern"))
+        return dt_est.strftime("%A, %B %d at %I:%M %p EST")
+    except:
+        return "Unknown"
+
+def value_label(am):
+    if am >= 120:
+        return "🟢 High Value"
+    elif am >= -120:
+        return "🟡 Low Value"
+    else:
+        return "🔴 Risky"
+
+# === SPORTMONKS ===
+def fetch_matches():
+    matches = []
+    base_url = "https://api.sportmonks.com/v3/football/fixtures/date"
+    headers = {"Accept": "application/json"}
+    for offset in [0, 1]:  # today and tomorrow
+        date = (datetime.utcnow().date() + timedelta(days=offset)).isoformat()
+        url = f"{base_url}/{date}"
+        params = {
+            "api_token": SPORTMONKS_API_KEY,
+            "include": "localTeam,visitorTeam,odds,league"
+        }
+        try:
+            res = requests.get(url, headers=headers, params=params)
+            res.raise_for_status()
+            matches.extend(res.json().get("data", []))
+        except Exception as e:
+            print(f"❌ Error fetching SportMonks data: {e}")
+    return matches
+
+# === MAIN ===
+def main():
+    matches = fetch_matches()
     if not matches:
-        msg = "⚠️ No matches found for today or tomorrow. Check back later!"
-        print(msg)
-        send_telegram_message(msg)
+        send_telegram_message("⚠️ No matches available today or tomorrow.")
         return
 
-    total_sent = 0
-
+    sent = 0
     for match in matches:
-        odds_data = match.get('odds', {}).get('data', [])
-        print(f"DEBUG: Match {match.get('id')} odds: {[odd.get('value') for odd in odds_data]}")
+        league = match.get("league", {}).get("data", {}).get("name", "Unknown League")
+        home = match.get("localTeam", {}).get("data", {}).get("name", "Home")
+        away = match.get("visitorTeam", {}).get("data", {}).get("name", "Away")
+        time_str = match.get("time", {}).get("starting_at", {}).get("date_time", "")
+        est_time = convert_to_est(time_str)
 
-        highlight = False
         odds_lines = []
+        pick = ""
+        best_value = -999
+        value_tier = "🟡 Low Value"
+        odds_data = match.get("odds", {}).get("data", [])
 
         for odd in odds_data:
-            label = odd.get('label', '').lower()
-            val = odd.get('value', None)
-            if not val or label not in ['1', '2', 'x']:
-                continue
+            label = odd.get("label", "").lower()
+            val = odd.get("value")
+            if val is None: continue
             am = to_american(val)
-            if is_in_range(am):
-                odds_lines.append(f"{label.upper()}: +{am}")
-                if am >= 150:
-                    highlight = True
-
-        if odds_lines:
-            msg_hash = match.get('id')
-            if msg_hash in sent_hashes:
+            if am is None or not (AMERICAN_ODDS_RANGE[0] <= am <= AMERICAN_ODDS_RANGE[1]):
                 continue
-            sent_hashes.add(msg_hash)
 
-            match_str = format_match(match, highlight)
-            odds_str = " | ".join(odds_lines)
-            flame = "🔥 BEST VALUE PICK!\n" if highlight else "💡 Smart Pick\n"
-            full_message = f"{flame}{match_str}\n🎯 {odds_str}"
+            label_out = ""
+            if label in ["1", "home"]:
+                label_out = f"{home}: {am:+}"
+            elif label in ["2", "away"]:
+                label_out = f"{away}: {am:+}"
+            elif "over" in label:
+                label_out = f"Total Over {label.split()[-1]} @ {am:+}"
+                if am > best_value:
+                    best_value = am
+                    pick = f"Over {label.split()[-1]} Runs"
+            elif "under" in label:
+                label_out = f"Total Under {label.split()[-1]} @ {am:+}"
+                if am > best_value:
+                    best_value = am
+                    pick = f"Under {label.split()[-1]} Runs"
 
-            print(f"Sending message for match {msg_hash}...")
-            try:
-                send_telegram_message(full_message)
-                print(f"✅ Message sent for match {msg_hash}")
-            except Exception as e:
-                print(f"❌ Failed to send Telegram message for match {msg_hash}: {e}")
+            if am > best_value and "Total" not in label_out:
+                best_value = am
+                pick = label_out.split(":")[0]
 
-            total_sent += 1
-            time.sleep(1)
+            if label_out:
+                odds_lines.append(f"• {label_out}")
 
-    if total_sent == 0:
-        msg = "😕 No value bets for today or tomorrow. Check back later!"
-        print(msg)
+        if not odds_lines:
+            continue
+
+        if best_value >= 120:
+            value_tier = "🟢 High Value"
+        elif best_value >= -120:
+            value_tier = "🟡 Low Value"
+        else:
+            value_tier = "🔴 Risky"
+
+        msg = f"""🔥 Bet Alert!
+{value_tier}
+
+🏟️ {home} @ {away}
+🕒 Start: {est_time}
+💵 Odds:
+{chr(10).join(odds_lines)}
+✅ Pick: {pick}
+
+📊 Why?
+• Odds range shows {value_tier}
+• Model favors recent volatility in scoring
+• Auto-filtered for optimal daily picks"""
+
         send_telegram_message(msg)
-        return
+        time.sleep(1)
+        sent += 1
+
+    if sent == 0:
+        send_telegram_message("🚫 No smart bets found in range (-200 to +150).")
+
+# === RUN ===
 if __name__ == "__main__":
-    while True:
-        try:
-            main()
-        except Exception as e:
-            print(f"❌ Error in main loop: {e}")
-        time.sleep(900)  # wait 15 minutes before next run
+    main()
