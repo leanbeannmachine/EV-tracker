@@ -1,64 +1,86 @@
+import requests
+import time
+from bet_formatter import format_bet_message
 
-from datetime import datetime
+# 🔐 Replace with your credentials
+TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+CHAT_ID = "964091254"
+ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 
-def format_bet_message(match):
-    home = match.get("home_team", "Home")
-    away = match.get("away_team", "Away")
-    start_time_raw = match.get("commence_time", "")
-    start_time = datetime.strptime(start_time_raw, "%Y-%m-%dT%H:%M:%SZ")
-    start_str = start_time.strftime("%A, %B %d at %I:%M %p EST")
+# ✅ Pull real bets from OddsAPI
+def fetch_real_bets():
+    url = "https://api.the-odds-api.com/v4/sports/soccer/odds"
+    params = {
+        "regions": "us",
+        "markets": "h2h",
+        "oddsFormat": "american",
+        "apiKey": ODDS_API_KEY
+    }
 
-    markets = match.get("bookmakers", [{}])[0].get("markets", [])
-    odds_summary = ""
-    best_pick = ""
-    risk_tag = "🟢 Best Value"  # Default tag
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except Exception as e:
+        print(f"❌ Error fetching bets: {e}")
+        return []
 
-    for market in markets:
-        if market["key"] == "h2h":
-            for outcome in market["outcomes"]:
-                team = outcome.get("name")
-                odd = outcome.get("price")
-                odds_summary += f"• {team}: {odd}\n"
-                if odd and 130 <= abs(odd) <= 170:
-                    best_pick = f"Moneyline: {team}"
-        elif market["key"] == "spreads":
-            for outcome in market["outcomes"]:
-                spread = outcome.get("point")
-                team = outcome.get("name")
-                odds_summary += f"• Spread {team}: {spread} @ {outcome.get('price')}\n"
-        elif market["key"] == "totals":
-            for outcome in market["outcomes"]:
-                point = outcome.get("point")
-                pick = outcome.get("name")
-                odds_summary += f"• Total {pick} {point} @ {outcome.get('price')}\n"
-                if pick == "Over":
-                    best_pick = f"Over {point} Runs"
+# 📊 Filter bets based on value
+def filter_value_bets(data):
+    good_bets = []
 
-    # Fallback if no best pick detected
-    if not best_pick:
-        best_pick = "Most favorable odds detected (Moneyline or Over)"
+    for match in data:
+        for bookmaker in match.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                for outcome in market.get("outcomes", []):
+                    if outcome.get("price") >= 130 and outcome.get("price") <= 170:
+                        bet = {
+                            "league": match.get("sport_key", "Unknown League"),
+                            "teams": f"{match['home_team']} vs {match['away_team']}",
+                            "odds": f"+{outcome['price']}",
+                            "win_prob": round(100 / (abs(outcome['price']) / 100), 1),
+                            "quality": "green",
+                            "reasoning": "Odds show clear value in current lines vs implied probability.",
+                            "start_time": match.get("commence_time", "Unknown Time")
+                        }
+                        good_bets.append(bet)
 
-    # Risk color coding
-    odds = [o.get("price") for m in markets for o in m.get("outcomes", []) if o.get("price")]
-    avg_odds = sum(map(abs, odds)) / len(odds) if odds else 100
-    if avg_odds > 150:
-        risk_tag = "🟢 Best Value"
-    elif avg_odds > 120:
-        risk_tag = "🟡 Low Value"
+    return good_bets
 
-    message = f"""🔥 *Bet Alert!*
-{risk_tag}
+# 🚀 Send message to Telegram
+def send_to_telegram(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"❌ Failed to send to Telegram: {e}")
 
-🏟️ *{away} @ {home}*
-🕒 *Start:* {start_str}
-💵 *Odds:*
-{odds_summary.strip()}
-✅ *Pick:* {best_pick}
+def main():
+    print("📡 Fetching real bets...")
+    bets_data = fetch_real_bets()
 
-📊 *Why?*
-• Odds range shows {risk_tag.lower()}
-• {match.get("team_form", "Model favors recent consistency")}
-• Auto-filtered for optimal daily picks
-"""
+    if not bets_data:
+        print("❌ No data returned.")
+        return
 
-    return message
+    good_bets = filter_value_bets(bets_data)
+
+    if not good_bets:
+        print("⚠️ No high-quality bets found.")
+        return
+
+    for bet in good_bets:
+        message = format_bet_message(bet)
+        print("✅ Sending:\n", message)
+        send_to_telegram(message)
+        time.sleep(2)
+
+if __name__ == "__main__":
+    main()
