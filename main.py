@@ -1,4 +1,5 @@
 import requests
+from bet_formatter import format_bet_message
 import pytz
 import time
 import logging
