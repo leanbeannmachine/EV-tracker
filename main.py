@@ -276,3 +276,10 @@ def build_message_oddsapi(match):
         "• Auto-filtered for optimal daily picks"
     )
     return message
+if __name__ == "__main__":
+    import time
+
+    while True:
+        main()
+        print("Waiting 15 minutes before next run...")
+        time.sleep(15 * 60)  # Sleep for 15 minutes
