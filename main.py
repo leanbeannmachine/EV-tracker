@@ -69,6 +69,7 @@ def get_fixture_data():
             "include": "participants",
             "per_page": 50
         }, timeout=15)
+
         response.raise_for_status()
         data = response.json()
         fixtures = data.get('data', [])
@@ -77,18 +78,20 @@ def get_fixture_data():
         tomorrow = today + timedelta(days=1)
 
         filtered = []
-        for f in fixtures:
-            start_str = f.get('starting_at')  # ✅ now properly indented
 
-            if not start_str:
+        for f in fixtures:
+            start_info = f.get('starting_at')
+
+            if not start_info:
                 continue
 
             try:
-                start_date = datetime.strptime(start_str[:10], "%Y-%m-%d").date()
-                if start_date == today or start_date == tomorrow:
+                # Handles full ISO format: e.g. "2025-06-06T20:30:00+00:00"
+                start_date = datetime.fromisoformat(start_info[:10]).date()
+                if start_date in [today, tomorrow]:
                     filtered.append(f)
             except Exception as e:
-                print(f"⚠️ Failed to parse date: {e}")
+                print(f"⚠️ Failed to parse fixture date: {start_info} → {e}")
                 continue
 
         return filtered
