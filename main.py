@@ -2,7 +2,6 @@ import requests
 import html
 import os
 import logging
-import math
 from datetime import datetime, timedelta
 
 # ===== SET UP LOGGING =====
@@ -13,17 +12,28 @@ logging.basicConfig(
 )
 
 # ===== CONFIGURATION =====
-ODDS_API_KEY = os.getenv('ODDS_API_KEY')
-SPORTMONKS_API_KEY = os.getenv('SPORTMONKS_API_KEY')
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+# Load and verify environment variables
+def get_env_var(name, required=True):
+    value = os.getenv(name)
+    if not value and required:
+        logging.error(f"❌ Missing required environment variable: {name}")
+        raise ValueError(f"Missing environment variable: {name}")
+    return value
+
+try:
+    ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
+    SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+    TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+    TELEGRAM_CHAT_ID =  "964091254"
+except ValueError:
+    logging.error("❌ Critical error - missing required environment variables. Exiting.")
+    exit(1)
 
 # ===== API ENDPOINTS =====
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
 SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
 
 # ===== LEAGUE FILTERS =====
-# Add your preferred leagues here
 PREFERRED_LEAGUES = [
     "Premier League", 
     "La Liga",
@@ -35,7 +45,6 @@ PREFERRED_LEAGUES = [
 ]
 
 # ===== COUNTRY FILTERS =====
-# Add your preferred countries here
 PREFERRED_COUNTRIES = [
     "England",
     "Spain",
@@ -44,65 +53,90 @@ PREFERRED_COUNTRIES = [
     "France"
 ]
 
+# ===== TEST API KEYS =====
+def test_api_keys():
+    """Test API keys before proceeding"""
+    # Test SportMonks API key
+    test_url = "https://api.sportmonks.com/v3/football/leagues"
+    try:
+        response = requests.get(
+            test_url,
+            params={"api_token": SPORTMONKS_API_KEY, "per_page": 1},
+            timeout=10
+        )
+        if response.status_code == 401:
+            logging.error("❌ SportMonks API key is invalid (401 Unauthorized)")
+            return False
+        response.raise_for_status()
+    except Exception as e:
+        logging.error(f"❌ SportMonks API test failed: {str(e)}")
+        return False
+    
+    # Test Odds API key
+    test_url = "https://api.the-odds-api.com/v4/sports"
+    try:
+        response = requests.get(
+            test_url,
+            params={"apiKey": ODDS_API_KEY},
+            timeout=10
+        )
+        if response.status_code == 401:
+            logging.error("❌ Odds API key is invalid (401 Unauthorized)")
+            return False
+        response.raise_for_status()
+    except Exception as e:
+        logging.error(f"❌ Odds API test failed: {str(e)}")
+        return False
+    
+    return True
+
 # ===== FETCH FIXTURE DATA =====
 def get_fixture_data():
     try:
-        logging.info("Fetching fixture data...")
-        
-        # First, fetch leagues to get their IDs
-        leagues_response = requests.get(
-            "https://api.sportmonks.com/v3/football/leagues",
-            params={
-                "api_token": SPORTMONKS_API_KEY,
-                "include": "country",
-                "per_page": 100
-            },
-            timeout=15
-        )
-        leagues_response.raise_for_status()
-        leagues_data = leagues_response.json().get('data', [])
-        
-        # Filter leagues based on preferred names
-        league_ids = []
-        for league in leagues_data:
-            if league['name'] in PREFERRED_LEAGUES:
-                league_ids.append(str(league['id']))
-                logging.info(f"Found preferred league: {league['name']} (ID: {league['id']})")
-        
-        if not league_ids:
-            logging.warning("No preferred leagues found! Using all leagues")
-            league_ids = [str(league['id']) for league in leagues_data]
-        
-        logging.info(f"Using league IDs: {', '.join(league_ids)}")
+        logging.info("🔍 Fetching fixture data...")
         
         # Get UTC dates for filtering
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
         day_after_tomorrow = today + timedelta(days=2)
         
-        # Fetch fixtures with league filters
+        # Fetch fixtures directly with date filters
         response = requests.get(
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
                 "include": "participants,league",
-                "per_page": 100,
-                "leagues": ",".join(league_ids),
-                "filters": "upcoming"
+                "per_page": 50,
+                "filters": "upcoming",
+                "start_date": today.strftime("%Y-%m-%d"),
+                "end_date": day_after_tomorrow.strftime("%Y-%m-%d")
             },
             timeout=15
         )
+        
+        # Handle API errors
+        if response.status_code == 401:
+            logging.error("❌ SportMonks API returned 401 Unauthorized")
+            return []
+        if response.status_code != 200:
+            logging.error(f"⚠️ SportMonks API error: {response.status_code} - {response.text[:200]}")
+            return []
+        
         response.raise_for_status()
         data = response.json()
         fixtures = data.get('data', [])
         
         filtered = []
-        logging.info(f"Found {len(fixtures)} total fixtures from API")
+        logging.info(f"📊 Found {len(fixtures)} total fixtures from API")
         
         for fixture in fixtures:
-            # Check if fixture is from preferred country
+            # Check if fixture is from preferred league and country
             league = fixture.get('league', {})
+            league_name = league.get('name', '')
             country = league.get('country', {}).get('name', '')
+            
+            if PREFERRED_LEAGUES and league_name not in PREFERRED_LEAGUES:
+                continue
             if PREFERRED_COUNTRIES and country not in PREFERRED_COUNTRIES:
                 continue
                 
@@ -119,183 +153,101 @@ def get_fixture_data():
                 
                 fixture_date = datetime.strptime(date_str, "%Y-%m-%d").date()
                 
-                # Check if fixture is today, tomorrow, or day after tomorrow
-                if fixture_date in (today, tomorrow, day_after_tomorrow):
-                    # Add extra debug info
-                    debug_info = {
-                        "id": fixture.get('id'),
-                        "league": league.get('name', 'Unknown'),
-                        "country": country,
-                        "home": fixture['participants'][0]['name'] if fixture.get('participants') else "Unknown",
-                        "away": fixture['participants'][1]['name'] if fixture.get('participants') and len(fixture['participants']) > 1 else "Unknown",
-                        "date": str(fixture_date),
-                        "time": start_info.split("T")[1][:5] if "T" in start_info else start_info.split(" ")[1][:5]
-                    }
-                    logging.info(f"Included fixture: {debug_info}")
-                    filtered.append(fixture)
+                # Add extra debug info
+                debug_info = {
+                    "id": fixture.get('id'),
+                    "league": league_name,
+                    "country": country,
+                    "home": fixture['participants'][0]['name'] if fixture.get('participants') else "Unknown",
+                    "away": fixture['participants'][1]['name'] if fixture.get('participants') and len(fixture['participants']) > 1 else "Unknown",
+                    "date": str(fixture_date),
+                }
+                logging.info(f"✅ Included fixture: {debug_info}")
+                filtered.append(fixture)
             except Exception as e:
-                logging.error(f"Failed to parse fixture date: {start_info} → {str(e)}")
+                logging.error(f"⚠️ Failed to parse fixture date: {start_info} → {str(e)}")
                 continue
                 
-        logging.info(f"Found {len(filtered)} fixtures for today/tomorrow/day after tomorrow")
+        logging.info(f"🎯 Found {len(filtered)} filtered fixtures")
         return filtered
 
     except requests.RequestException as e:
-        logging.error(f"Error fetching fixtures: {str(e)}")
+        logging.error(f"❌ Network error fetching fixtures: {str(e)}")
         return []
     except Exception as e:
-        logging.error(f"Unexpected error in get_fixture_data: {str(e)}")
+        logging.error(f"❌ Unexpected error in get_fixture_data: {str(e)}")
         return []
 
 # ===== FETCH ODDS DATA =====
 def get_odds_data():
     try:
-        logging.info("Fetching odds data...")
+        logging.info("🎲 Fetching odds data...")
         response = requests.get(
             ODDS_API_URL,
             params={
                 "regions": "eu",
-                "markets": "h2h,spreads,totals",
+                "markets": "h2h",
                 "oddsFormat": "decimal",
                 "apiKey": ODDS_API_KEY
             },
             timeout=15
         )
+        
+        # Handle API errors
+        if response.status_code == 401:
+            logging.error("❌ Odds API returned 401 Unauthorized")
+            return None
+        if response.status_code != 200:
+            logging.error(f"⚠️ Odds API error: {response.status_code} - {response.text[:200]}")
+            return None
+            
         response.raise_for_status()
         return response.json()
+    except requests.RequestException as e:
+        logging.error(f"❌ Network error fetching odds: {str(e)}")
+        return None
     except Exception as e:
-        logging.error(f"Odds API error: {str(e)}")
+        logging.error(f"❌ Unexpected error in get_odds_data: {str(e)}")
         return None
 
 # ===== ANALYZE BETTING MARKETS =====
 def analyze_betting_markets(odds_data, home_team, away_team):
-    money_line_winner = "⚠️ No data"
-    spread_winner = "⚠️ No data"
-    over_under_winner = "⚠️ No data"
-    double_chance_winner = "⚠️ No data"
-    
     if not odds_data:
-        return {
-            "money_line": money_line_winner,
-            "spread": spread_winner,
-            "over_under": over_under_winner,
-            "double_chance": double_chance_winner
-        }
+        return "⚠️ No odds data available"
     
-    for match in odds_data:
-        if match.get('home_team') == home_team and match.get('away_team') == away_team:
-            # Money Line (H2H) Analysis
-            home_odds = []
-            away_odds = []
-            draw_odds = []
-            
-            # Spread Analysis
-            spread_home_odds = []
-            spread_away_odds = []
-            spread_points = None
-            
-            # Over/Under Analysis
-            over_odds = []
-            under_odds = []
-            total_points = None
-            
-            # Double Chance Analysis
-            home_draw_odds = []
-            away_draw_odds = []
-            home_away_odds = []
-            
-            for bookmaker in match.get('bookmakers', []):
-                for market in bookmaker.get('markets', []):
-                    # Money Line (H2H)
-                    if market['key'] == 'h2h':
-                        for outcome in market['outcomes']:
-                            if outcome['name'] == home_team:
-                                home_odds.append(outcome['price'])
-                            elif outcome['name'] == away_team:
-                                away_odds.append(outcome['price'])
-                            elif outcome['name'] == 'Draw':
-                                draw_odds.append(outcome['price'])
-                    
-                    # Point Spread
-                    elif market['key'] == 'spreads':
-                        for outcome in market['outcomes']:
-                            if outcome['name'] == home_team:
-                                spread_home_odds.append(outcome['price'])
-                                spread_points = outcome['point']
-                            elif outcome['name'] == away_team:
-                                spread_away_odds.append(outcome['price'])
-                    
-                    # Over/Under
-                    elif market['key'] == 'totals':
-                        for outcome in market['outcomes']:
-                            if outcome['name'] == 'Over':
-                                over_odds.append(outcome['price'])
-                                total_points = outcome['point']
-                            elif outcome['name'] == 'Under':
-                                under_odds.append(outcome['price'])
-            
-            # Calculate Double Chance odds
-            if home_odds and draw_odds:
-                home_draw_odds = [1/(1/home_odd + 1/draw_odd) for home_odd, draw_odd in zip(home_odds, draw_odds)]
-            if away_odds and draw_odds:
-                away_draw_odds = [1/(1/away_odd + 1/draw_odd) for away_odd, draw_odd in zip(away_odds, draw_odds)]
-            if home_odds and away_odds:
-                home_away_odds = [1/(1/home_odd + 1/away_odd) for home_odd, away_odd in zip(home_odds, away_odds)]
-            
-            # Determine Money Line Winner
-            if home_odds and away_odds and draw_odds:
-                avg_home = sum(home_odds)/len(home_odds)
-                avg_away = sum(away_odds)/len(away_odds)
-                avg_draw = sum(draw_odds)/len(draw_odds)
+    try:
+        for match in odds_data:
+            if match.get('home_team') == home_team and match.get('away_team') == away_team:
+                # Find best home and away odds
+                home_odds = []
+                away_odds = []
                 
-                if avg_home < avg_away and avg_home < avg_draw:
-                    money_line_winner = f"🏠 {home_team} WIN (Best: {max(home_odds):.2f})"
-                elif avg_away < avg_home and avg_away < avg_draw:
-                    money_line_winner = f"✈️ {away_team} WIN (Best: {max(away_odds):.2f})"
-                else:
-                    money_line_winner = f"🟰 DRAW (Best: {max(draw_odds):.2f})"
-            
-            # Determine Spread Winner
-            if spread_home_odds and spread_away_odds and spread_points:
-                home_edge = max(spread_home_odds) - min(spread_home_odds)
-                away_edge = max(spread_away_odds) - min(spread_away_odds)
+                for bookmaker in match.get('bookmakers', []):
+                    for market in bookmaker.get('markets', []):
+                        if market['key'] == 'h2h':
+                            for outcome in market['outcomes']:
+                                if outcome['name'] == home_team:
+                                    home_odds.append(outcome['price'])
+                                elif outcome['name'] == away_team:
+                                    away_odds.append(outcome['price'])
                 
-                if home_edge > away_edge:
-                    spread_winner = f"🏠 {home_team} +{spread_points} (Best: {max(spread_home_odds):.2f})"
-                else:
-                    spread_winner = f"✈️ {away_team} -{spread_points} (Best: {max(spread_away_odds):.2f})"
-            
-            # Determine Over/Under Winner
-            if over_odds and under_odds and total_points:
-                over_edge = max(over_odds) - min(over_odds)
-                under_edge = max(under_odds) - min(under_odds)
+                if not home_odds or not away_odds:
+                    return "⚠️ Incomplete odds data"
                 
-                if over_edge > under_edge:
-                    over_under_winner = f"⬆️ OVER {total_points} (Best: {max(over_odds):.2f})"
+                best_home = max(home_odds)
+                best_away = max(away_odds)
+                
+                # Simple analysis - which team has better odds
+                if best_home < best_away:
+                    return f"🏠 {home_team} WIN (Best: {best_home:.2f})"
                 else:
-                    over_under_winner = f"⬇️ UNDER {total_points} (Best: {max(under_odds):.2f})"
-            
-            # Determine Double Chance Winner
-            dc_options = []
-            if home_draw_odds:
-                dc_options.append(("🏠/🟰 Home/Draw", max(home_draw_odds)))
-            if away_draw_odds:
-                dc_options.append(("✈️/🟰 Away/Draw", max(away_draw_odds)))
-            if home_away_odds:
-                dc_options.append(("🏠/✈️ Home/Away", max(home_away_odds)))
-            
-            if dc_options:
-                dc_options.sort(key=lambda x: x[1], reverse=True)
-                double_chance_winner = f"{dc_options[0][0]} (Best: {dc_options[0][1]:.2f})"
-            
-            break  # Found our match, exit loop
-    
-    return {
-        "money_line": money_line_winner,
-        "spread": spread_winner,
-        "over_under": over_under_winner,
-        "double_chance": double_chance_winner
-    }
+                    return f"✈️ {away_team} WIN (Best: {best_away:.2f})"
+        
+        return "⚠️ No matching odds found"
+        
+    except Exception as e:
+        logging.error(f"❌ Error analyzing betting markets: {str(e)}")
+        return "⚠️ Analysis error"
 
 # ===== FORMAT TELEGRAM MESSAGE =====
 def format_telegram_message(odds_data, fixture_data):
@@ -319,47 +271,40 @@ def format_telegram_message(odds_data, fixture_data):
             date_str = start_time.split("T")[0]
             time_part = start_time.split("T")[1]
             time_str = time_part[:5] if len(time_part) >= 5 else "N/A"
-        else:
+        elif " " in start_time:
             parts = start_time.split(" ")
             date_str = parts[0] if len(parts) > 0 else "N/A"
             time_str = parts[1][:5] if len(parts) > 1 and len(parts[1]) >= 5 else "N/A"
+        else:
+            date_str = start_time[:10] if len(start_time) >= 10 else "N/A"
+            time_str = "N/A"
         
-        # Analyze all betting markets
-        analysis = analyze_betting_markets(odds_data, home, away)
+        # Analyze betting market
+        money_line = analyze_betting_markets(odds_data, home, away)
         
-        # Build clear winning recommendations
+        # Build message
         message = f"""
-🎯 *BETTING WINNERS FOR TODAY* 🎯
+🎯 *BETTING RECOMMENDATION* 🎯
 ⚽️ *{html.escape(home)} vs {html.escape(away)}*
 🏆 *League:* {html.escape(league_name)}
 📅 *Date:* {date_str} | ⏰ *Time:* {time_str} UTC
 ─────────────────
         
 🟩 *MONEY LINE WINNER:*
-   {analysis.get('money_line', '⚠️ No data')}
-        
-📊 *SPREAD WINNER:*
-   {analysis.get('spread', '⚠️ No data')}
-        
-📈 *OVER/UNDER WINNER:*
-   {analysis.get('over_under', '⚠️ No data')}
-        
-✌️ *DOUBLE CHANCE WINNER:*
-   {analysis.get('double_chance', '⚠️ No data')}
+   {money_line}
 ─────────────────
-💡 *TIP:* These are calculated based on best value across bookmakers
+💡 *TIP:* Based on best available odds
 """
-
         return message
         
     except Exception as e:
-        logging.error(f"Formatting error: {str(e)}")
+        logging.error(f"❌ Error formatting message: {str(e)}")
         return "⚠️ Error formatting message"
 
 # ===== SEND TO TELEGRAM =====
 def send_telegram_message(message):
     try:
-        logging.info("Sending Telegram message...")
+        logging.info("📤 Sending Telegram message...")
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
@@ -368,38 +313,46 @@ def send_telegram_message(message):
             "disable_web_page_preview": True
         }
         response = requests.post(url, json=payload, timeout=10)
-        return response.json()
+        response_data = response.json()
+        
+        if response_data.get('ok'):
+            logging.info("✅ Telegram message sent successfully!")
+            return True
+        else:
+            logging.error(f"❌ Telegram API error: {response_data.get('description')}")
+            return False
     except Exception as e:
-        logging.error(f"Telegram send error: {str(e)}")
-        return None
+        logging.error(f"❌ Failed to send Telegram message: {str(e)}")
+        return False
 
 # ===== MAIN EXECUTION =====
 if __name__ == "__main__":
-    logging.info("🚀 Running Betting Alert Script...")
+    logging.info("🚀 Starting Betting Alert Script...")
+    
+    # Test API keys first
+    if not test_api_keys():
+        error_msg = "❌ API key verification failed. Exiting."
+        logging.error(error_msg)
+        send_telegram_message(error_msg)
+        exit(1)
     
     # Get data from APIs
-    odds_data = get_odds_data()
     fixture_data = get_fixture_data()
+    odds_data = get_odds_data()
     
     if not fixture_data:
-        logging.warning("No fixtures found for today/tomorrow! Sending notification...")
-        message = "⚠️ No upcoming fixtures found for today or tomorrow"
-        send_telegram_message(message)
+        warning_msg = "⚠️ No upcoming fixtures found"
+        logging.warning(warning_msg)
+        send_telegram_message(warning_msg)
         logging.info("🏁 Script completed")
         exit(0)
     
     # Format message
     message = format_telegram_message(odds_data, fixture_data)
-    logging.info(f"Formatted message:\n{message}")
+    logging.info(f"💬 Formatted message:\n{message}")
     
     # Send to Telegram
-    result = send_telegram_message(message)
+    if not send_telegram_message(message):
+        logging.error("❌ Failed to send Telegram message")
     
-    if result and result.get('ok'):
-        logging.info("✅ Message sent successfully!")
-    else:
-        logging.error("❌ Failed to send message")
-        if result:
-            logging.error(f"Telegram response: {result}")
-    
-    logging.info("🏁 Script completed")
+    logging.info("🏁 Script completed successfully")
