@@ -57,11 +57,15 @@ def test_odds_api_key():
 # ===== FETCH MLB FIXTURE DATA =====
 def get_fixture_data():
     try:
-        logging.info("🔍 Fetching MLB fixture data...")
+        # Get current time in UTC
+        now = datetime.utcnow()
+        logging.info(f"⏰ Current UTC time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Calculate date range
-        today = datetime.utcnow().date()
-        end_date = today + timedelta(days=3)  # Next 3 days
+        # Calculate date range - TODAY and TOMORROW only
+        start_date = now.date()
+        end_date = (now + timedelta(days=1)).date()
+        
+        logging.info(f"🔍 Fetching MLB fixtures from {start_date} to {end_date}...")
         
         # Fetch MLB fixtures
         response = requests.get(
@@ -72,7 +76,7 @@ def get_fixture_data():
                 "per_page": 50,
                 "leagues": str(MLB_LEAGUE_ID),
                 "filters": "upcoming",
-                "start_date": today.strftime("%Y-%m-%d"),
+                "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d")
             },
             timeout=15
@@ -90,19 +94,33 @@ def get_fixture_data():
         data = response.json()
         fixtures = data.get('data', [])
         
+        # Filter out games that have already started
+        current_time = datetime.utcnow()
+        valid_fixtures = []
+        for fixture in fixtures:
+            start_time_str = fixture.get('starting_at', '')
+            if start_time_str:
+                try:
+                    # Parse fixture time (UTC format)
+                    fixture_time = datetime.strptime(start_time_str.split('.')[0], "%Y-%m-%dT%H:%M:%S")
+                    if fixture_time > current_time:
+                        valid_fixtures.append(fixture)
+                except ValueError:
+                    continue
+        
         # Log some debug information
-        if fixtures:
-            logging.info(f"📊 Found {len(fixtures)} MLB fixtures")
-            for fixture in fixtures:
+        if valid_fixtures:
+            logging.info(f"📊 Found {len(valid_fixtures)} upcoming MLB fixtures")
+            for fixture in valid_fixtures:
                 start_time = fixture.get('starting_at', 'N/A')
                 participants = fixture.get('participants', [])
                 home = participants[0]['name'] if participants else 'Unknown'
                 away = participants[1]['name'] if len(participants) > 1 else 'Unknown'
-                logging.info(f"  ⚾ {home} vs {away} on {start_time}")
+                logging.info(f"  ⚾ {home} vs {away} at {start_time}")
         else:
-            logging.info("ℹ️ No MLB fixtures found in API response")
+            logging.info("ℹ️ No upcoming MLB fixtures found in API response")
             
-        return fixtures
+        return valid_fixtures
 
     except requests.RequestException as e:
         logging.error(f"❌ Network error fetching fixtures: {str(e)}")
@@ -214,7 +232,7 @@ def analyze_mlb_betting(odds_data, home_team, away_team):
 # ===== FORMAT TELEGRAM MESSAGE =====
 def format_telegram_message(odds_data, fixture_data):
     if not fixture_data:
-        return "⚠️ No upcoming MLB games found in the next 3 days"
+        return "⚠️ No upcoming MLB games found in the next 2 days"
     
     try:
         # Sort fixtures by date
@@ -270,56 +288,4 @@ def format_telegram_message(odds_data, fixture_data):
 def send_telegram_message(message):
     try:
         logging.info("📤 Sending Telegram message...")
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "disable_web_page_preview": True
-        }
-        response = requests.post(url, json=payload, timeout=10)
-        response_data = response.json()
-        
-        if response_data.get('ok'):
-            logging.info("✅ Telegram message sent successfully!")
-            return True
-        else:
-            logging.error(f"❌ Telegram API error: {response_data.get('description')}")
-            return False
-    except Exception as e:
-        logging.error(f"❌ Failed to send Telegram message: {str(e)}")
-        return False
-
-# ===== MAIN EXECUTION =====
-if __name__ == "__main__":
-    logging.info("🚀 Starting MLB Betting Alert Script...")
-    
-    # Test Odds API key first
-    if not test_odds_api_key():
-        error_msg = "❌ Odds API key verification failed. Exiting."
-        logging.error(error_msg)
-        send_telegram_message(error_msg)
-        exit(1)
-    
-    # Get data from APIs
-    logging.info("🔍 Fetching MLB fixture data...")
-    fixture_data = get_fixture_data()
-    
-    if not fixture_data:
-        warning_msg = "⚠️ No upcoming MLB games found in the next 3 days"
-        logging.warning(warning_msg)
-        send_telegram_message(warning_msg)
-        logging.info("🏁 Script completed")
-        exit(0)
-    
-    logging.info("🎲 Fetching MLB odds data...")
-    odds_data = get_odds_data()
-    
-    # Format message
-    message = format_telegram_message(odds_data, fixture_data)
-    logging.info(f"💬 Formatted message:\n{message}")
-    
-    # Send to Telegram
-    if not send_telegram_message(message):
-        logging.error("❌ Failed to send Telegram message")
-    
-    logging.info("🏁 Script completed successfully")
+        url
