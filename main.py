@@ -59,19 +59,44 @@ def get_odds_data():
         return None
 
 # ===== Fetch Fixture Data =====
+from datetime import datetime, timedelta
+
 def get_fixture_data():
     try:
+        # Today and tomorrow’s date range
+        today = datetime.utcnow().date()
+        tomorrow = today + timedelta(days=1)
+        date_from = today.strftime('%Y-%m-%d')
+        date_to = tomorrow.strftime('%Y-%m-%d')
+
         response = requests.get(SPORTMONKS_API_URL, params={
             "api_token": SPORTMONKS_API_KEY,
             "include": "participants",
-            "per_page": 1
+            "filters[starting_at_from]": date_from,
+            "filters[starting_at_to]": date_to,
+            "per_page": 5  # Get up to 5 games
         }, timeout=15)
+
         response.raise_for_status()
         data = response.json()
-        return data.get('data', [])
+        fixtures = data.get('data', [])
+
+        # Filter out test fixtures with missing team names or old years
+        valid_fixtures = []
+        for fixture in fixtures:
+            participants = fixture.get('participants', [])
+            if len(participants) < 2:
+                continue
+            name_1 = participants[0].get('name', '')
+            name_2 = participants[1].get('name', '')
+            start_time = fixture.get('starting_at', '')
+            if name_1 and name_2 and "Test" not in name_1 and "Test" not in name_2 and start_time.startswith("2025"):
+                valid_fixtures.append(fixture)
+
+        return valid_fixtures
     except Exception as e:
         print(f"❌ SportMonks API error: {e}")
-        return None
+        return []
 
 # ===== Format Telegram Message =====
 def format_telegram_message(odds_data, fixture_data):
@@ -79,7 +104,10 @@ def format_telegram_message(odds_data, fixture_data):
         return "⚠️ No upcoming fixtures found"
 
     try:
-        fixture = fixture_data[0]
+        for fixture in fixture_data:
+    message = format_telegram_message(odds_data, [fixture])
+    print("📨 Message:\n", message)
+    send_telegram_message(message)
         participants = fixture.get('participants', [])
         if len(participants) < 2:
             return "⚠️ Not enough teams"
