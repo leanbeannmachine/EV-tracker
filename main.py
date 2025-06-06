@@ -67,7 +67,7 @@ def get_fixture_data():
         response = requests.get(SPORTMONKS_API_URL, params={
             "api_token": SPORTMONKS_API_KEY,
             "include": "participants",
-            "per_page": 20
+            "per_page": 50  # Fetch more fixtures just in case
         }, timeout=15)
         response.raise_for_status()
         data = response.json()
@@ -78,7 +78,9 @@ def get_fixture_data():
 
         filtered = []
         for f in fixtures:
-            start_str = f.get('starting_at', {}).get('date_time')
+            start_info = f.get('starting_at', {})
+            start_str = start_info.get('date_time')  # Safely access nested datetime
+
             if not start_str:
                 continue
 
@@ -87,30 +89,14 @@ def get_fixture_data():
                 if start_date == today or start_date == tomorrow:
                     filtered.append(f)
             except Exception as e:
-                print(f"⚠️ Date parse error: {e}")
+                print(f"⚠️ Failed to parse date: {e}")
                 continue
 
         return filtered
 
     except requests.RequestException as e:
-        print(f"❌ Error fetching fixture data: {e}")
+        print(f"❌ Error fetching fixtures: {e}")
         return []
-# ===== Filter Fixtures (Today & Tomorrow Only) =====
-def filter_fixtures(fixture_data):
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
-    valid_fixtures = []
-
-    for fixture in fixture_data:
-        start_str = fixture.get('starting_at', '')
-        try:
-            fixture_time = datetime.fromisoformat(start_str.replace('Z', '+00:00')).date()
-            if fixture_time in [today, tomorrow]:
-                valid_fixtures.append(fixture)
-        except:
-            continue
-
-    return valid_fixtures
 
 # ===== Format Telegram Message =====
 def format_telegram_message(odds_data, fixture):
