@@ -1,8 +1,17 @@
-import requests import logging
+# ===== IMPORT REQUIRED MODULES =====
+import requests
+import html
+import os
+import logging
+import math
 from datetime import datetime, timedelta
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ===== SET UP LOGGING =====
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # ===== 🔐 API Keys & Tokens =====
 ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
