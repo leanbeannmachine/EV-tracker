@@ -55,32 +55,98 @@ def test_odds_api_key():
         return False
 
 # ===== FETCH MLB FIXTURE DATA =====
+# ... (previous code remains the same until get_fixture_data function)
+
+# ===== FETCH MLB FIXTURE DATA =====
 def get_fixture_data():
     try:
-        # Get current time in UTC
         now = datetime.utcnow()
         logging.info(f"⏰ Current UTC time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Calculate date range - TODAY and TOMORROW only
+        # Widen the date range to 3 days
         start_date = now.date()
-        end_date = (now + timedelta(days=1)).date()
+        end_date = (now + timedelta(days=3)).date()
         
         logging.info(f"🔍 Fetching MLB fixtures from {start_date} to {end_date}...")
         
-        # Fetch MLB fixtures
+        # Fetch MLB fixtures - remove league filter to see if we get any games
         response = requests.get(
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
-                "include": "participants,venue",
+                "include": "participants",
                 "per_page": 50,
-                "leagues": str(MLB_LEAGUE_ID),
                 "filters": "upcoming",
-                "start_date": start_date.strftime("%Y-%m-%d"),
-                "end_date": end_date.strftime("%Y-%m-%d")
             },
             timeout=15
         )
+        
+        # Debug: Log raw response
+        logging.debug(f"SportMonks API response: {response.status_code}")
+        if response.text:
+            logging.debug(f"Response snippet: {response.text[:500]}")
+        
+        if response.status_code == 401:
+            logging.error("❌ SportMonks API returned 401 Unauthorized - check your API key")
+            return []
+        if response.status_code != 200:
+            logging.error(f"⚠️ SportMonks API error: {response.status_code} - {response.text[:200]}")
+            return []
+            
+        data = response.json()
+        fixtures = data.get('data', [])
+        
+        # Log total fixtures found
+        logging.info(f"ℹ️ Total fixtures found: {len(fixtures)}")
+        
+        # Filter MLB games and upcoming games
+        current_time = datetime.utcnow()
+        valid_fixtures = []
+        for fixture in fixtures:
+            # Filter MLB games
+            league_id = fixture.get('league_id')
+            if league_id != MLB_LEAGUE_ID:
+                continue
+                
+            start_time_str = fixture.get('starting_at', '')
+            if not start_time_str:
+                continue
+                
+            try:
+                # Parse time (handle different formats)
+                if '.' in start_time_str and 'Z' in start_time_str:
+                    # Format: 2023-10-01T19:10:00.000000Z
+                    clean_str = start_time_str.split('.')[0] + 'Z'
+                    fixture_time = datetime.strptime(clean_str, "%Y-%m-%dT%H:%M:%SZ")
+                else:
+                    # Try without milliseconds
+                    fixture_time = datetime.strptime(start_time_str.split('T')[0], "%Y-%m-%d")
+                    
+                # Only include future games
+                if fixture_time > current_time:
+                    valid_fixtures.append(fixture)
+            except Exception as e:
+                logging.warning(f"⚠️ Could not parse date: {start_time_str} - {str(e)}")
+                continue
+        
+        if valid_fixtures:
+            logging.info(f"📊 Found {len(valid_fixtures)} upcoming MLB fixtures")
+            for fixture in valid_fixtures:
+                participants = fixture.get('participants', [])
+                home = participants[0]['name'] if participants else 'Unknown'
+                away = participants[1]['name'] if len(participants) > 1 else 'Unknown'
+                logging.info(f"  ⚾ {home} vs {away} at {fixture.get('starting_at')}")
+        else:
+            logging.info("ℹ️ No upcoming MLB fixtures found")
+            
+        return valid_fixtures
+
+    except requests.RequestException as e:
+        logging.error(f"❌ Network error fetching fixtures: {str(e)}")
+        return []
+    except Exception as e:
+        logging.error(f"❌ Unexpected error in get_fixture_data: {str(e)}")
+        return []
         
         # Handle API errors
         if response.status_code == 401:
