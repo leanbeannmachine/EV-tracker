@@ -12,13 +12,12 @@ logging.basicConfig(
 )
 
 # ===== CONFIGURATION =====
-# Load and verify environment variables
 def get_env_var(name, required=True):
     value = os.getenv(name)
     if not value and required:
         logging.error(f"❌ Missing required environment variable: {name}")
         raise ValueError(f"Missing environment variable: {name}")
-    return value
+    return value.strip('"').strip("'")
 
 try:
     ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
@@ -33,24 +32,27 @@ except ValueError:
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
 SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
 
-# ===== LEAGUE FILTERS =====
-PREFERRED_LEAGUES = [
-    "Premier League", 
-    "La Liga",
-    "Serie A",
-    "Bundesliga",
-    "Ligue 1",
-    "Champions League",
-    "Europa League"
-]
-
-# ===== COUNTRY FILTERS =====
-PREFERRED_COUNTRIES = [
-    "England",
-    "Spain",
-    "Italy",
-    "Germany",
-    "France"
+# ===== LEAGUE IDS =====
+# Using IDs from your plan for reliable filtering
+LEAGUE_IDS = [
+    8,     # Premier League (England)
+    564,   # La Liga (Spain)
+    384,   # Serie A (Italy)
+    82,    # Bundesliga (Germany)
+    301,   # Ligue 1 (France)
+    1371,  # UEFA Europa League Play-offs
+    24,    # FA Cup (England)
+    27,    # Carabao Cup (England)
+    570,   # Copa Del Rey (Spain)
+    390,   # Coppa Italia (Italy)
+    72,    # Eredivisie (Netherlands)
+    462,   # Liga Portugal (Portugal)
+    486,   # Premier League (Russia)
+    501,   # Premiership (Scotland)
+    573,   # Allsvenskan (Sweden)
+    591,   # Super League (Switzerland)
+    600,   # Super Lig (Turkey)
+    609,   # Premier League (Ukraine)
 ]
 
 # ===== TEST API KEYS =====
@@ -68,48 +70,37 @@ def test_api_keys():
             logging.error("❌ SportMonks API key is invalid (401 Unauthorized)")
             return False
         response.raise_for_status()
+        logging.info("✅ SportMonks API key validated")
+        return True
     except Exception as e:
         logging.error(f"❌ SportMonks API test failed: {str(e)}")
         return False
-    
-    # Test Odds API key
-    test_url = "https://api.the-odds-api.com/v4/sports"
-    try:
-        response = requests.get(
-            test_url,
-            params={"apiKey": ODDS_API_KEY},
-            timeout=10
-        )
-        if response.status_code == 401:
-            logging.error("❌ Odds API key is invalid (401 Unauthorized)")
-            return False
-        response.raise_for_status()
-    except Exception as e:
-        logging.error(f"❌ Odds API test failed: {str(e)}")
-        return False
-    
-    return True
 
 # ===== FETCH FIXTURE DATA =====
 def get_fixture_data():
     try:
         logging.info("🔍 Fetching fixture data...")
         
-        # Get UTC dates for filtering
+        # Calculate date range
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
         day_after_tomorrow = today + timedelta(days=2)
         
-        # Fetch fixtures directly with date filters
+        # Format dates for API
+        start_date = today.strftime("%Y-%m-%d")
+        end_date = day_after_tomorrow.strftime("%Y-%m-%d")
+        
+        # Fetch fixtures with league filters
         response = requests.get(
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
                 "include": "participants,league",
                 "per_page": 50,
+                "leagues": ",".join(map(str, LEAGUE_IDS)),
                 "filters": "upcoming",
-                "start_date": today.strftime("%Y-%m-%d"),
-                "end_date": day_after_tomorrow.strftime("%Y-%m-%d")
+                "start_date": start_date,
+                "end_date": end_date
             },
             timeout=15
         )
@@ -126,50 +117,8 @@ def get_fixture_data():
         data = response.json()
         fixtures = data.get('data', [])
         
-        filtered = []
-        logging.info(f"📊 Found {len(fixtures)} total fixtures from API")
-        
-        for fixture in fixtures:
-            # Check if fixture is from preferred league and country
-            league = fixture.get('league', {})
-            league_name = league.get('name', '')
-            country = league.get('country', {}).get('name', '')
-            
-            if PREFERRED_LEAGUES and league_name not in PREFERRED_LEAGUES:
-                continue
-            if PREFERRED_COUNTRIES and country not in PREFERRED_COUNTRIES:
-                continue
-                
-            start_info = fixture.get('starting_at')
-            if not start_info:
-                continue
-                
-            try:
-                # Handle both space and T separated formats
-                if " " in start_info:  # Handle "YYYY-MM-DD HH:MM:SS"
-                    date_str = start_info.split(" ")[0]
-                else:  # Handle "YYYY-MM-DDTHH:MM:SS+00:00"
-                    date_str = start_info.split("T")[0]
-                
-                fixture_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                
-                # Add extra debug info
-                debug_info = {
-                    "id": fixture.get('id'),
-                    "league": league_name,
-                    "country": country,
-                    "home": fixture['participants'][0]['name'] if fixture.get('participants') else "Unknown",
-                    "away": fixture['participants'][1]['name'] if fixture.get('participants') and len(fixture['participants']) > 1 else "Unknown",
-                    "date": str(fixture_date),
-                }
-                logging.info(f"✅ Included fixture: {debug_info}")
-                filtered.append(fixture)
-            except Exception as e:
-                logging.error(f"⚠️ Failed to parse fixture date: {start_info} → {str(e)}")
-                continue
-                
-        logging.info(f"🎯 Found {len(filtered)} filtered fixtures")
-        return filtered
+        logging.info(f"📊 Found {len(fixtures)} fixtures from selected leagues")
+        return fixtures
 
     except requests.RequestException as e:
         logging.error(f"❌ Network error fetching fixtures: {str(e)}")
@@ -252,12 +201,14 @@ def analyze_betting_markets(odds_data, home_team, away_team):
 # ===== FORMAT TELEGRAM MESSAGE =====
 def format_telegram_message(odds_data, fixture_data):
     if not fixture_data:
-        return "⚠️ No upcoming fixtures found"
+        return "⚠️ No upcoming fixtures found in selected leagues"
     
     try:
+        # Sort fixtures by date
+        fixture_data.sort(key=lambda x: x.get('starting_at', ''))
         fixture = fixture_data[0]
-        participants = fixture.get('participants', [])
         
+        participants = fixture.get('participants', [])
         if len(participants) < 2:
             return "⚠️ Fixture data incomplete"
         
@@ -341,7 +292,7 @@ if __name__ == "__main__":
     odds_data = get_odds_data()
     
     if not fixture_data:
-        warning_msg = "⚠️ No upcoming fixtures found"
+        warning_msg = "⚠️ No upcoming fixtures found in selected leagues"
         logging.warning(warning_msg)
         send_telegram_message(warning_msg)
         logging.info("🏁 Script completed")
