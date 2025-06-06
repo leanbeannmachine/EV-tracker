@@ -94,10 +94,21 @@ def format_telegram_message(odds_data, fixture_data):
 
         analysis = analyze_betting_markets(odds_data, home, away) if odds_data else {}
 
-        message = f"""
-🎯 *BETTING WINNERS FOR TODAY* 🎯
-⚽️ *{html.escape(home)} vs {html.escape(away)}*
-📅 *Date:* {date_str} | ⏰ *Time:* {time_str} UTC
+home_escaped = escape_markdown_v2(home)
+away_escaped = escape_markdown_v2(away)
+
+message = (
+    f"🎯 *BETTING WINNERS FOR TODAY* 🎯\n"
+    f"⚽️ *{home_escaped} vs {away_escaped}*\n"
+    f"📅 *Date:* {escape_markdown_v2(date_str)} | ⏰ *Time:* {escape_markdown_v2(time_str)} UTC\n"
+    f"─────────────────\n\n"
+    f"🟩 *MONEY LINE WINNER:*\n   {escape_markdown_v2(analysis.get('money_line'))}\n\n"
+    f"📊 *SPREAD WINNER:*\n   {escape_markdown_v2(analysis.get('spread'))}\n\n"
+    f"📈 *OVER/UNDER WINNER:*\n   {escape_markdown_v2(analysis.get('over_under'))}\n\n"
+    f"✌️ *DOUBLE CHANCE WINNER:*\n   {escape_markdown_v2(analysis.get('double_chance'))}\n"
+    f"─────────────────\n"
+    f"💡 *TIP:* Picks are based on best bookmaker odds & probabilities"
+)
 ─────────────────
 
 🟩 *MONEY LINE WINNER:*
