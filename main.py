@@ -111,7 +111,7 @@ message = (
 )
 message += "─────────────────\n"
 
-🟩 *MONEY LINE WINNER:*
+message += "🟩 *MONEY LINE WINNER:*\n"
    {analysis.get('money_line', '⚠️ No data')}
 
 📊 *SPREAD WINNER:*
