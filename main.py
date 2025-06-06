@@ -20,7 +20,7 @@ TELEGRAM_CHAT_ID = "964091254"
 
 # ===== API ENDPOINTS =====
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
-SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
+SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football
 
 # ===== FETCH FIXTURE DATA =====
 def get_fixture_data():
@@ -31,7 +31,8 @@ def get_fixture_data():
             params={
                 "api_token": SPORTMONKS_API_KEY,
                 "include": "participants",
-                "per_page": 50
+                "per_page": 100,  # Increased to get more matches
+                "filters": "startingBetween,upcoming"  # New filter for upcoming matches
             },
             timeout=15
         )
@@ -42,11 +43,16 @@ def get_fixture_data():
         # Get UTC dates for filtering
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
+        day_after_tomorrow = today + timedelta(days=2)
+        
         filtered = []
+        
+        logging.info(f"Found {len(fixtures)} total fixtures from API")
         
         for fixture in fixtures:
             start_info = fixture.get('starting_at')
             if not start_info:
+                logging.warning(f"Fixture missing start time: {fixture.get('id')}")
                 continue
                 
             try:
@@ -58,14 +64,23 @@ def get_fixture_data():
                 
                 fixture_date = datetime.strptime(date_str, "%Y-%m-%d").date()
                 
-                # Check if fixture is today or tomorrow
-                if fixture_date in (today, tomorrow):
+                # Check if fixture is today, tomorrow, or day after tomorrow
+                if fixture_date in (today, tomorrow, day_after_tomorrow):
+                    # Add extra debug info
+                    debug_info = {
+                        "id": fixture.get('id'),
+                        "home": fixture['participants'][0]['name'] if fixture.get('participants') else "Unknown",
+                        "away": fixture['participants'][1]['name'] if fixture.get('participants') and len(fixture['participants']) > 1 else "Unknown",
+                        "date": str(fixture_date),
+                        "status": fixture.get('status')
+                    }
+                    logging.info(f"Included fixture: {debug_info}")
                     filtered.append(fixture)
             except Exception as e:
                 logging.error(f"Failed to parse fixture date: {start_info} → {str(e)}")
                 continue
                 
-        logging.info(f"Found {len(filtered)} fixtures for today/tomorrow")
+        logging.info(f"Found {len(filtered)} fixtures for today/tomorrow/day after tomorrow")
         return filtered
 
     except requests.RequestException as e:
@@ -74,7 +89,7 @@ def get_fixture_data():
     except Exception as e:
         logging.error(f"Unexpected error in get_fixture_data: {str(e)}")
         return []
-
+        
 # ===== FETCH ODDS DATA =====
 def get_odds_data():
     try:
