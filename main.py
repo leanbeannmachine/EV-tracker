@@ -1,5 +1,4 @@
 import requests
-import html
 import os
 import logging
 from datetime import datetime, timedelta
@@ -27,7 +26,6 @@ try:
 except ValueError:
     logging.error("❌ Critical error - missing required environment variables. Exiting.")
     exit(1)
-    
 
 # ===== API ENDPOINTS =====
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
@@ -36,28 +34,9 @@ SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/baseball/fixtures"
 # ===== MLB LEAGUE ID =====
 MLB_LEAGUE_ID = 1  # Major League Baseball
 
-# ===== TEST API KEYS =====
-def test_api_keys():
-    """Test API keys before proceeding"""
-    # Test SportMonks API key using a simple endpoint
-    try:
-        test_url = "https://api.sportmonks.com/v3/core/version"
-        response = requests.get(
-            test_url,
-            params={"api_token": SPORTMONKS_API_KEY},
-            timeout=10
-        )
-        if response.status_code == 401:
-            logging.error("❌ SportMonks API key is invalid (401 Unauthorized)")
-            return False
-        response.raise_for_status()
-        logging.info("✅ SportMonks API key validated")
-        return True
-    except Exception as e:
-        logging.error(f"❌ SportMonks API test failed: {str(e)}")
-        return False
-
-    # Test Odds API key
+# ===== TEST ODDS API KEY =====
+def test_odds_api_key():
+    """Test Odds API key before proceeding"""
     try:
         test_url = "https://api.the-odds-api.com/v4/sports"
         response = requests.get(
@@ -101,7 +80,7 @@ def get_fixture_data():
         
         # Handle API errors
         if response.status_code == 401:
-            logging.error("❌ SportMonks API returned 401 Unauthorized")
+            logging.error("❌ SportMonks API returned 401 Unauthorized - check your API key")
             return []
         if response.status_code != 200:
             logging.error(f"⚠️ SportMonks API error: {response.status_code} - {response.text[:200]}")
@@ -149,7 +128,7 @@ def get_odds_data():
         
         # Handle API errors
         if response.status_code == 401:
-            logging.error("❌ Odds API returned 401 Unauthorized")
+            logging.error("❌ Odds API returned 401 Unauthorized - check your API key")
             return None
         if response.status_code != 200:
             logging.error(f"⚠️ Odds API error: {response.status_code} - {response.text[:200]}")
@@ -265,7 +244,7 @@ def format_telegram_message(odds_data, fixture_data):
         # Analyze betting markets
         money_line, over_under = analyze_mlb_betting(odds_data, home, away)
         
-        # Build message with simple formatting (no Markdown)
+        # Build message with simple formatting
         message = f"""
 ⚾ MLB BETTING RECOMMENDATION ⚾
 🏟️ Matchup: {home} vs {away}
@@ -314,11 +293,11 @@ def send_telegram_message(message):
 if __name__ == "__main__":
     logging.info("🚀 Starting MLB Betting Alert Script...")
     
-    # Test API keys first
-    if not test_api_keys():
-        error_msg = "❌ API key verification failed. Exiting."
+    # Test Odds API key first
+    if not test_odds_api_key():
+        error_msg = "❌ Odds API key verification failed. Exiting."
         logging.error(error_msg)
-        send_telegram_message(error_msg)  # Using simple text
+        send_telegram_message(error_msg)
         exit(1)
     
     # Get data from APIs
