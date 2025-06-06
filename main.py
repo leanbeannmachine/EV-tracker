@@ -247,13 +247,29 @@ def main():
     for date_str in [today, tomorrow]:
         print(f"📅 Fetching bets for {date_str}")
 
+        # SportMonks API
         try:
             sm_bets = get_sportmonks_bets(SPORTMONKS_API_KEY, date_str)
-            print(f"📊 SportMonks bets: {len(sm_bets)}")
+            print(f"📊 SportMonks bets pulled: {len(sm_bets)}")
             all_bets.extend(sm_bets)
         except Exception as e:
-            print(f"❌ Error fetching SportMonks bets: {
-try:
-    oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
-    print(f"📊 OddsAPI bets pulled: {len(oa_bets)}")
-                
+            print(f"❌ Error fetching SportMonks bets: {e}")
+
+        # OddsAPI
+        try:
+            oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
+            print(f"📊 OddsAPI bets pulled: {len(oa_bets)}")
+            all_bets.extend(oa_bets)
+        except Exception as e:
+            print(f"❌ Error fetching OddsAPI bets: {e}")
+
+    # Send all bets to Telegram
+    if all_bets:
+        try:
+            for bet in all_bets:
+                send_to_telegram(bet)
+            print(f"📬 Sent {len(all_bets)} bets to Telegram.")
+        except Exception as e:
+            print(f"❌ Error sending bets to Telegram: {e}")
+    else:
+        print("⚠️ No bets to send.")
