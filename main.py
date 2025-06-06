@@ -255,5 +255,5 @@ def main():
             print(f"❌ Error fetching SportMonks bets: {e}")
 
         try:
-            oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
-            print(f"📊 OddsAPI bets
+    oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
+    print("📊 OddsAPI bets pulled successfully")
