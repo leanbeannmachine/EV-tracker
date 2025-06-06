@@ -1,7 +1,7 @@
 import requests
 import html
 
-# ===== 🔐 API Keys & Tokens (Hardcoded for simplicity) =====
+# ===== 🔐 API Keys & Tokens =====
 ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
 SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
@@ -17,10 +17,8 @@ def analyze_betting_markets(odds_data, home, away):
     try:
         for event in odds_data:
             if home.lower() in event['home_team'].lower() or away.lower() in event['away_team'].lower():
-                bookmakers = event.get('bookmakers', [])
-                for book in bookmakers:
-                    markets = book.get('markets', [])
-                    for market in markets:
+                for book in event.get('bookmakers', []):
+                    for market in book.get('markets', []):
                         key = market.get('key')
                         outcomes = market.get('outcomes', [])
                         if not outcomes:
@@ -76,10 +74,6 @@ def get_fixture_data():
         return None
 
 # ===== Format Telegram Message =====
-def escape_markdown_v2(text):
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    return ''.join(f'\\{char}' if char in escape_chars else char for char in text)
-
 def format_telegram_message(odds_data, fixture_data):
     if not fixture_data:
         return "⚠️ No upcoming fixtures found"
@@ -96,38 +90,52 @@ def format_telegram_message(odds_data, fixture_data):
         date_str = start_time[:10] if len(start_time) >= 10 else "N/A"
         time_str = start_time[11:16] if len(start_time) >= 16 else "N/A"
 
-        home_escaped = escape_markdown_v2(home)
-        away_escaped = escape_markdown_v2(away)
-
         analysis = analyze_betting_markets(odds_data, home, away) if odds_data else {}
 
-        message = f"📅 *Match:* {home_escaped} vs {away_escaped}\n"
-        message += f"⏰ *Kickoff:* {date_str} at {time_str}\n"
-        message += "─────────────────\n"
+        home_escaped = html.escape(home)
+        away_escaped = html.escape(away)
 
-        message += "🟩 *MONEY LINE WINNER:*\n"
-        message += f"{analysis.get('money_line', '⚠️ No data')}\n"
-        message += "─────────────────\n"
+        message = f"""🔥 *Today's Top Bet Preview:*
+📅 *{date_str} at {time_str}*
+🏆 *{home_escaped} vs {away_escaped}*
 
-        message += "📊 *SPREAD WINNER:*\n"
-        message += f"{analysis.get('spread', '⚠️ No data')}\n"
-        message += "─────────────────\n"
+✌️ *DOUBLE CHANCE WINNER:*
+{analysis.get('double_chance', '⚠️ No data')}
 
-        message += "📈 *OVER/UNDER WINNER:*\n"
-        message += f"{analysis.get('over_under', '⚠️ No data')}\n"
-        message += "─────────────────\n"
+📈 *OVER/UNDER WINNER:*
+{analysis.get('over_under', '⚠️ No data')}
 
-        message += "✌️ *DOUBLE CHANCE WINNER:*\n"
-        message += f"{analysis.get('double_chance', '⚠️ No data')}\n"
-        message += "─────────────────\n"
+🟩 *MONEY LINE WINNER:*
+{analysis.get('money_line', '⚠️ No data')}
 
-        message += "💡 *TIP:* Picks are based on best bookmaker odds & probabilities\n"
+📊 *SPREAD WINNER:*
+{analysis.get('spread', '⚠️ No data')}
 
+💡 *TIP:* Picks are based on best bookmaker odds & probabilities
+"""
         return message
-
     except Exception as e:
         print(f"⚠️ Message formatting error: {e}")
         return "⚠️ Error formatting message"
+
+# ===== Send Message to Telegram =====
+def send_telegram_message(message):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            print("✅ Sent to Telegram!")
+        else:
+            print(f"❌ Telegram error: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Telegram send error: {e}")
+
 # ===== Main Run =====
 if __name__ == "__main__":
     print("🚀 Running Betting Alert Script...")
