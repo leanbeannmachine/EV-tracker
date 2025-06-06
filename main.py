@@ -97,19 +97,19 @@ def format_telegram_message(odds_data, fixture_data):
 home_escaped = escape_markdown_v2(home)
 away_escaped = escape_markdown_v2(away)
 
-message = (
-    f"🎯 *BETTING WINNERS FOR TODAY* 🎯\n"
-    f"⚽️ *{home_escaped} vs {away_escaped}*\n"
-    f"📅 *Date:* {escape_markdown_v2(date_str)} | ⏰ *Time:* {escape_markdown_v2(time_str)} UTC\n"
-    f"─────────────────\n\n"
-    f"🟩 *MONEY LINE WINNER:*\n   {escape_markdown_v2(analysis.get('money_line'))}\n\n"
-    f"📊 *SPREAD WINNER:*\n   {escape_markdown_v2(analysis.get('spread'))}\n\n"
-    f"📈 *OVER/UNDER WINNER:*\n   {escape_markdown_v2(analysis.get('over_under'))}\n\n"
-    f"✌️ *DOUBLE CHANCE WINNER:*\n   {escape_markdown_v2(analysis.get('double_chance'))}\n"
-    f"─────────────────\n"
-    f"💡 *TIP:* Picks are based on best bookmaker odds & probabilities"
-)
+message += "✌️ *DOUBLE CHANCE WINNER:*\n"
+message += "⚠️ No data\n"
 message += "─────────────────\n"
+message += "📈 *OVER/UNDER WINNER:*\n"
+message += "⚠️ No data\n"
+message += "─────────────────\n"
+message += "🟩 *MONEY LINE WINNER:*\n"
+message += "⚠️ No data\n"
+message += "─────────────────\n"
+message += "📊 *SPREAD WINNER:*\n"
+message += "⚠️ No data\n"
+message += "─────────────────\n"
+message += "💡 *TIP:* Picks are based on best bookmaker odds & probabilities\n"
 
 message += "🟩 *MONEY LINE WINNER:*\n"
    {analysis.get('money_line', '⚠️ No data')}
