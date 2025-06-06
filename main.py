@@ -60,6 +60,8 @@ def get_odds_data():
 
 # ===== Fetch Fixture Data =====
 from datetime import datetime, timedelta
+import requests
+from dateutil import parser
 
 def get_fixture_data():
     try:
@@ -72,6 +74,8 @@ def get_fixture_data():
         data = response.json()
         fixtures = data.get('data', [])
 
+        print(f"🔍 Raw fixture count: {len(fixtures)}")
+
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
 
@@ -79,12 +83,30 @@ def get_fixture_data():
         for f in fixtures:
             start_str = f.get('starting_at')
             if not start_str:
+                print("⚠️ Fixture missing 'starting_at'")
                 continue
-            start_date = datetime.strptime(start_str[:10], "%Y-%m-%d").date()
+            try:
+                start_dt = parser.isoparse(start_str)
+                start_date = start_dt.date()
+            except Exception as e:
+                print(f"⚠️ Failed to parse date '{start_str}': {e}")
+                continue
+
             if start_date == today or start_date == tomorrow:
                 filtered.append(f)
+                print(f"✅ Fixture {f.get('id')} on {start_date} included")
+            else:
+                print(f"⏭ Fixture {f.get('id')} on {start_date} excluded")
 
+        print(f"🟢 Fixtures for today or tomorrow: {len(filtered)}")
         return filtered
+
+    except requests.RequestException as e:
+        print(f"❌ Request error: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        return []
 
     except Exception as e:
         print(f"❌ SportMonks API error: {e}")
