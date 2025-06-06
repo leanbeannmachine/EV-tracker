@@ -21,9 +21,9 @@ def get_env_var(name, required=True):
 
 try:
     ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
-    SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
-    TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-    TELEGRAM_CHAT_ID = "964091254"
+SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
 except ValueError:
     logging.error("❌ Critical error - missing required environment variables. Exiting.")
     exit(1)
@@ -38,12 +38,12 @@ MLB_LEAGUE_ID = 1  # Major League Baseball
 # ===== TEST API KEYS =====
 def test_api_keys():
     """Test API keys before proceeding"""
-    # Test SportMonks API key
-    test_url = "https://api.sportmonks.com/v3/baseball/leagues"
+    # Test SportMonks API key using a simple endpoint
     try:
+        test_url = "https://api.sportmonks.com/v3/core/version"
         response = requests.get(
             test_url,
-            params={"api_token": SPORTMONKS_API_KEY, "per_page": 1},
+            params={"api_token": SPORTMONKS_API_KEY},
             timeout=10
         )
         if response.status_code == 401:
@@ -54,6 +54,24 @@ def test_api_keys():
         return True
     except Exception as e:
         logging.error(f"❌ SportMonks API test failed: {str(e)}")
+        return False
+
+    # Test Odds API key
+    try:
+        test_url = "https://api.the-odds-api.com/v4/sports"
+        response = requests.get(
+            test_url,
+            params={"apiKey": ODDS_API_KEY},
+            timeout=10
+        )
+        if response.status_code == 401:
+            logging.error("❌ Odds API key is invalid (401 Unauthorized)")
+            return False
+        response.raise_for_status()
+        logging.info("✅ Odds API key validated")
+        return True
+    except Exception as e:
+        logging.error(f"❌ Odds API test failed: {str(e)}")
         return False
 
 # ===== FETCH MLB FIXTURE DATA =====
@@ -70,7 +88,7 @@ def get_fixture_data():
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
-                "include": "participants,league",
+                "include": "participants,venue",
                 "per_page": 50,
                 "leagues": str(MLB_LEAGUE_ID),
                 "filters": "upcoming",
@@ -246,21 +264,21 @@ def format_telegram_message(odds_data, fixture_data):
         # Analyze betting markets
         money_line, over_under = analyze_mlb_betting(odds_data, home, away)
         
-        # Build message
+        # Build message with simple formatting (no Markdown)
         message = f"""
-⚾ *MLB BETTING RECOMMENDATION* ⚾
-🏟️ *Matchup:* {html.escape(home)} vs {html.escape(away)}
-📍 *Venue:* {venue}
-📅 *Date:* {date_str} | ⏰ *Time:* {time_str}
+⚾ MLB BETTING RECOMMENDATION ⚾
+🏟️ Matchup: {home} vs {away}
+📍 Venue: {venue}
+📅 Date: {date_str} | ⏰ Time: {time_str}
 ─────────────────
         
-💰 *MONEY LINE:*
+💰 MONEY LINE:
    {money_line}
         
-📊 *OVER/UNDER:*
+📊 OVER/UNDER:
    {over_under}
 ─────────────────
-💡 *TIP:* Based on best available odds across bookmakers
+💡 TIP: Based on best available odds across bookmakers
 """
         return message
         
@@ -276,7 +294,6 @@ def send_telegram_message(message):
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
-            "parse_mode": "MarkdownV2",
             "disable_web_page_preview": True
         }
         response = requests.post(url, json=payload, timeout=10)
@@ -300,7 +317,7 @@ if __name__ == "__main__":
     if not test_api_keys():
         error_msg = "❌ API key verification failed. Exiting."
         logging.error(error_msg)
-        send_telegram_message(error_msg)
+        send_telegram_message(error_msg)  # Using simple text
         exit(1)
     
     # Get data from APIs
