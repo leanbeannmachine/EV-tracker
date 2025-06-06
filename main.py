@@ -78,9 +78,7 @@ def get_fixture_data():
 
         filtered = []
         for f in fixtures:
-            start_info = f.get('starting_at', {})
-            start_str = start_info.get('date_time')  # Safely access nested datetime
-
+        start_str = f.get('starting_at')
             if not start_str:
                 continue
 
