@@ -1,5 +1,5 @@
 import requests
-import html
+from datetime import datetime, timedelta
 
 # ===== 🔐 API Keys & Tokens =====
 ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
@@ -11,7 +11,7 @@ TELEGRAM_CHAT_ID = "964091254"
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
 SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
 
-# ===== Analyze Betting Data =====
+# ===== Analyze Betting Markets =====
 def analyze_betting_markets(odds_data, home, away):
     result = {}
     try:
@@ -59,55 +59,39 @@ def get_odds_data():
         return None
 
 # ===== Fetch Fixture Data =====
-from datetime import datetime, timedelta
-
 def get_fixture_data():
     try:
-        # Today and tomorrow’s date range
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        date_from = today.strftime('%Y-%m-%d')
-        date_to = tomorrow.strftime('%Y-%m-%d')
-
         response = requests.get(SPORTMONKS_API_URL, params={
             "api_token": SPORTMONKS_API_KEY,
             "include": "participants",
-            "filters[starting_at_from]": date_from,
-            "filters[starting_at_to]": date_to,
-            "per_page": 5  # Get up to 5 games
+            "per_page": 5
         }, timeout=15)
-
         response.raise_for_status()
-        data = response.json()
-        fixtures = data.get('data', [])
-
-        # Filter out test fixtures with missing team names or old years
-        valid_fixtures = []
-        for fixture in fixtures:
-            participants = fixture.get('participants', [])
-            if len(participants) < 2:
-                continue
-            name_1 = participants[0].get('name', '')
-            name_2 = participants[1].get('name', '')
-            start_time = fixture.get('starting_at', '')
-            if name_1 and name_2 and "Test" not in name_1 and "Test" not in name_2 and start_time.startswith("2025"):
-                valid_fixtures.append(fixture)
-
-        return valid_fixtures
+        return response.json().get('data', [])
     except Exception as e:
         print(f"❌ SportMonks API error: {e}")
-        return []
+        return None
+
+# ===== Filter Fixtures (Today & Tomorrow Only) =====
+def filter_fixtures(fixture_data):
+    today = datetime.utcnow().date()
+    tomorrow = today + timedelta(days=1)
+    valid_fixtures = []
+
+    for fixture in fixture_data:
+        start_str = fixture.get('starting_at', '')
+        try:
+            fixture_time = datetime.fromisoformat(start_str.replace('Z', '+00:00')).date()
+            if fixture_time in [today, tomorrow]:
+                valid_fixtures.append(fixture)
+        except:
+            continue
+
+    return valid_fixtures
 
 # ===== Format Telegram Message =====
-def format_telegram_message(odds_data, fixture_data):
-    if not fixture_data:
-        return "⚠️ No upcoming fixtures found"
-
+def format_telegram_message(odds_data, fixture):
     try:
-        for fixture in fixture_data:
-    message = format_telegram_message(odds_data, [fixture])
-    print("📨 Message:\n", message)
-    send_telegram_message(message)
         participants = fixture.get('participants', [])
         if len(participants) < 2:
             return "⚠️ Not enough teams"
@@ -120,12 +104,9 @@ def format_telegram_message(odds_data, fixture_data):
 
         analysis = analyze_betting_markets(odds_data, home, away) if odds_data else {}
 
-        home_escaped = html.escape(home)
-        away_escaped = html.escape(away)
-
         message = f"""🔥 *Today's Top Bet Preview:*
-📅 *{date_str} at {time_str}*
-🏆 *{home_escaped} vs {away_escaped}*
+📅 {date_str} at {time_str}
+🏆 {home} vs {away}
 
 ✌️ *DOUBLE CHANCE WINNER:*
 {analysis.get('double_chance', '⚠️ No data')}
@@ -139,14 +120,14 @@ def format_telegram_message(odds_data, fixture_data):
 📊 *SPREAD WINNER:*
 {analysis.get('spread', '⚠️ No data')}
 
-💡 *TIP:* Picks are based on best bookmaker odds & probabilities
-"""
+💡 *TIP:* Picks are based on best bookmaker odds & probabilities"""
         return message
+
     except Exception as e:
         print(f"⚠️ Message formatting error: {e}")
         return "⚠️ Error formatting message"
 
-# ===== Send Message to Telegram =====
+# ===== Send Telegram Message =====
 def send_telegram_message(message):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -164,16 +145,21 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"❌ Telegram send error: {e}")
 
-# ===== Main Run =====
+# ===== Main Run Block =====
 if __name__ == "__main__":
     print("🚀 Running Betting Alert Script...")
 
     odds_data = get_odds_data()
     fixture_data = get_fixture_data()
 
-    message = format_telegram_message(odds_data, fixture_data)
-    print("📨 Message:\n", message)
+    filtered_fixtures = filter_fixtures(fixture_data)
 
-    send_telegram_message(message)
+    if not filtered_fixtures:
+        print("⚠️ No valid fixtures for today or tomorrow.")
+    else:
+        for fixture in filtered_fixtures:
+            message = format_telegram_message(odds_data, fixture)
+            print("📨 Message:\n", message)
+            send_telegram_message(message)
 
     print("✅ Script complete.")
