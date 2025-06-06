@@ -1,5 +1,8 @@
-import requests
+import requests import logging
 from datetime import datetime, timedelta
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ===== 🔐 API Keys & Tokens =====
 ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
@@ -64,40 +67,49 @@ from datetime import datetime, timedelta
 
 def get_fixture_data():
     try:
-        response = requests.get(SPORTMONKS_API_URL, params={
-            "api_token": SPORTMONKS_API_KEY,
-            "include": "participants",
-            "per_page": 50
-        }, timeout=15)
-
+        # Fetch fixtures with participants data
+        response = requests.get(
+            SPORTMONKS_API_URL,
+            params={
+                "api_token": SPORTMONKS_API_KEY,
+                "include": "participants",
+                "per_page": 50
+            },
+            timeout=15
+        )
         response.raise_for_status()
         data = response.json()
         fixtures = data.get('data', [])
-
+        
+        # Get UTC dates for filtering
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
-
         filtered = []
-
-        for f in fixtures:
-            start_info = f.get('starting_at')
-
+        
+        for fixture in fixtures:
+            start_info = fixture.get('starting_at')
             if not start_info:
                 continue
-
+                
             try:
-                # Handles full ISO format: e.g. "2025-06-06T20:30:00+00:00"
-                start_date = datetime.fromisoformat(start_info[:10]).date()
-                if start_date in [today, tomorrow]:
-                    filtered.append(f)
+                # Extract date part safely (handles different formats)
+                date_part = start_info.split("T")[0]
+                fixture_date = datetime.strptime(date_part, "%Y-%m-%d").date()
+                
+                # Check if fixture is today or tomorrow
+                if fixture_date in (today, tomorrow):
+                    filtered.append(fixture)
             except Exception as e:
-                print(f"⚠️ Failed to parse fixture date: {start_info} → {e}")
+                logging.error(f"⚠️ Failed to parse fixture date: {start_info} → {str(e)}")
                 continue
-
+                
         return filtered
 
     except requests.RequestException as e:
-        print(f"❌ Error fetching fixtures: {e}")
+        logging.error(f"❌ Error fetching fixtures: {str(e)}")
+        return []
+    except Exception as e:
+        logging.error(f"❌ Unexpected error in get_fixture_data: {str(e)}")
         return []
         
 # ===== Format Telegram Message =====
