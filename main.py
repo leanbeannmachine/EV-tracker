@@ -288,4 +288,4 @@ def format_telegram_message(odds_data, fixture_data):
 def send_telegram_message(message):
     try:
         logging.info("📤 Sending Telegram message...")
-        url
+        url = f"https://api.telegram.org/bot{TE
