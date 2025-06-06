@@ -252,8 +252,8 @@ def main():
             print(f"📊 SportMonks bets: {len(sm_bets)}")
             all_bets.extend(sm_bets)
         except Exception as e:
-            print(f"❌ Error fetching SportMonks bets: {e}")
-
-        try:
+            print(f"❌ Error fetching SportMonks bets: {
+try:
     oa_bets = get_oddsapi_bets(ODDSAPI_KEY, date_str)
-    print("📊 OddsAPI bets pulled successfully")
+    print(f"📊 OddsAPI bets pulled: {len(oa_bets)}")
+                
