@@ -109,7 +109,7 @@ message = (
     f"─────────────────\n"
     f"💡 *TIP:* Picks are based on best bookmaker odds & probabilities"
 )
-─────────────────
+message += "─────────────────\n"
 
 🟩 *MONEY LINE WINNER:*
    {analysis.get('money_line', '⚠️ No data')}
