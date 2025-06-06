@@ -13,26 +13,82 @@ logging.basicConfig(
 )
 
 # ===== CONFIGURATION =====
-ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
-SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
+ODDS_API_KEY = os.getenv('ODDS_API_KEY')
+SPORTMONKS_API_KEY = os.getenv('SPORTMONKS_API_KEY')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # ===== API ENDPOINTS =====
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
-SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football
+SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
+
+# ===== LEAGUE FILTERS =====
+# Add your preferred leagues here
+PREFERRED_LEAGUES = [
+    "Premier League", 
+    "La Liga",
+    "Serie A",
+    "Bundesliga",
+    "Ligue 1",
+    "Champions League",
+    "Europa League"
+]
+
+# ===== COUNTRY FILTERS =====
+# Add your preferred countries here
+PREFERRED_COUNTRIES = [
+    "England",
+    "Spain",
+    "Italy",
+    "Germany",
+    "France"
+]
 
 # ===== FETCH FIXTURE DATA =====
 def get_fixture_data():
     try:
         logging.info("Fetching fixture data...")
+        
+        # First, fetch leagues to get their IDs
+        leagues_response = requests.get(
+            "https://api.sportmonks.com/v3/football/leagues",
+            params={
+                "api_token": SPORTMONKS_API_KEY,
+                "include": "country",
+                "per_page": 100
+            },
+            timeout=15
+        )
+        leagues_response.raise_for_status()
+        leagues_data = leagues_response.json().get('data', [])
+        
+        # Filter leagues based on preferred names
+        league_ids = []
+        for league in leagues_data:
+            if league['name'] in PREFERRED_LEAGUES:
+                league_ids.append(str(league['id']))
+                logging.info(f"Found preferred league: {league['name']} (ID: {league['id']})")
+        
+        if not league_ids:
+            logging.warning("No preferred leagues found! Using all leagues")
+            league_ids = [str(league['id']) for league in leagues_data]
+        
+        logging.info(f"Using league IDs: {', '.join(league_ids)}")
+        
+        # Get UTC dates for filtering
+        today = datetime.utcnow().date()
+        tomorrow = today + timedelta(days=1)
+        day_after_tomorrow = today + timedelta(days=2)
+        
+        # Fetch fixtures with league filters
         response = requests.get(
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
-                "include": "participants",
-                "per_page": 100,  # Increased to get more matches
-                "filters": "startingBetween,upcoming"  # New filter for upcoming matches
+                "include": "participants,league",
+                "per_page": 100,
+                "leagues": ",".join(league_ids),
+                "filters": "upcoming"
             },
             timeout=15
         )
@@ -40,19 +96,18 @@ def get_fixture_data():
         data = response.json()
         fixtures = data.get('data', [])
         
-        # Get UTC dates for filtering
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        day_after_tomorrow = today + timedelta(days=2)
-        
         filtered = []
-        
         logging.info(f"Found {len(fixtures)} total fixtures from API")
         
         for fixture in fixtures:
+            # Check if fixture is from preferred country
+            league = fixture.get('league', {})
+            country = league.get('country', {}).get('name', '')
+            if PREFERRED_COUNTRIES and country not in PREFERRED_COUNTRIES:
+                continue
+                
             start_info = fixture.get('starting_at')
             if not start_info:
-                logging.warning(f"Fixture missing start time: {fixture.get('id')}")
                 continue
                 
             try:
@@ -69,10 +124,12 @@ def get_fixture_data():
                     # Add extra debug info
                     debug_info = {
                         "id": fixture.get('id'),
+                        "league": league.get('name', 'Unknown'),
+                        "country": country,
                         "home": fixture['participants'][0]['name'] if fixture.get('participants') else "Unknown",
                         "away": fixture['participants'][1]['name'] if fixture.get('participants') and len(fixture['participants']) > 1 else "Unknown",
                         "date": str(fixture_date),
-                        "status": fixture.get('status')
+                        "time": start_info.split("T")[1][:5] if "T" in start_info else start_info.split(" ")[1][:5]
                     }
                     logging.info(f"Included fixture: {debug_info}")
                     filtered.append(fixture)
@@ -89,7 +146,7 @@ def get_fixture_data():
     except Exception as e:
         logging.error(f"Unexpected error in get_fixture_data: {str(e)}")
         return []
-        
+
 # ===== FETCH ODDS DATA =====
 def get_odds_data():
     try:
@@ -255,6 +312,7 @@ def format_telegram_message(odds_data, fixture_data):
         home = participants[0].get('name', 'Home Team')
         away = participants[1].get('name', 'Away Team')
         start_time = fixture.get('starting_at', '')
+        league_name = fixture.get('league', {}).get('name', 'Unknown League')
         
         # Format date and time
         if "T" in start_time:
@@ -273,6 +331,7 @@ def format_telegram_message(odds_data, fixture_data):
         message = f"""
 🎯 *BETTING WINNERS FOR TODAY* 🎯
 ⚽️ *{html.escape(home)} vs {html.escape(away)}*
+🏆 *League:* {html.escape(league_name)}
 📅 *Date:* {date_str} | ⏰ *Time:* {time_str} UTC
 ─────────────────
         
@@ -320,7 +379,14 @@ if __name__ == "__main__":
     
     # Get data from APIs
     odds_data = get_odds_data()
-    fixture_data = get_fixture_data()  # This already returns filtered fixtures
+    fixture_data = get_fixture_data()
+    
+    if not fixture_data:
+        logging.warning("No fixtures found for today/tomorrow! Sending notification...")
+        message = "⚠️ No upcoming fixtures found for today or tomorrow"
+        send_telegram_message(message)
+        logging.info("🏁 Script completed")
+        exit(0)
     
     # Format message
     message = format_telegram_message(odds_data, fixture_data)
