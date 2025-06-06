@@ -59,17 +59,21 @@ def get_odds_data():
         return None
 
 # ===== Fetch Fixture Data =====
-def get_fixture_data():
+def get_fixture_with_odds():
+    url = "https://api.sportmonks.com/v3/football/fixtures"
+    params = {
+        "api_token": SPORTMONKS_API_KEY,
+        "include": "participants,odds",
+        "per_page": 5  # Try up to 5 fixtures instead of 1
+    }
+
     try:
-        response = requests.get(SPORTMONKS_API_URL, params={
-            "api_token": SPORTMONKS_API_KEY,
-            "include": "participants",
-            "per_page": 5
-        }, timeout=15)
+        response = requests.get(url, params=params, timeout=15)
         response.raise_for_status()
-        return response.json().get('data', [])
+        fixtures = response.json().get("data", [])
+        return fixtures[0] if fixtures else None
     except Exception as e:
-        print(f"❌ SportMonks API error: {e}")
+        print(f"❌ SportMonks error: {e}")
         return None
 
 # ===== Filter Fixtures (Today & Tomorrow Only) =====
