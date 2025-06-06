@@ -67,7 +67,7 @@ def get_fixture_data():
         response = requests.get(SPORTMONKS_API_URL, params={
             "api_token": SPORTMONKS_API_KEY,
             "include": "participants",
-            "per_page": 50  # Fetch more fixtures just in case
+            "per_page": 50
         }, timeout=15)
         response.raise_for_status()
         data = response.json()
@@ -78,7 +78,8 @@ def get_fixture_data():
 
         filtered = []
         for f in fixtures:
-        start_str = f.get('starting_at')
+            start_str = f.get('starting_at')  # ✅ now properly indented
+
             if not start_str:
                 continue
 
@@ -95,7 +96,7 @@ def get_fixture_data():
     except requests.RequestException as e:
         print(f"❌ Error fetching fixtures: {e}")
         return []
-
+        
 # ===== Format Telegram Message =====
 def format_telegram_message(odds_data, fixture):
     try:
