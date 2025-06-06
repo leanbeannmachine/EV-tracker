@@ -21,12 +21,13 @@ def get_env_var(name, required=True):
 
 try:
     ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
-SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTApl-BKVHt8YL6m0jNZpmUbCu4szH"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
+    SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+    TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+    TELEGRAM_CHAT_ID = "964091254"
 except ValueError:
     logging.error("❌ Critical error - missing required environment variables. Exiting.")
     exit(1)
+    
 
 # ===== API ENDPOINTS =====
 ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
