@@ -23,43 +23,23 @@ try:
     ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
     SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
     TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-    TELEGRAM_CHAT_ID =  "964091254"
+    TELEGRAM_CHAT_ID = "964091254"
 except ValueError:
     logging.error("❌ Critical error - missing required environment variables. Exiting.")
     exit(1)
 
 # ===== API ENDPOINTS =====
-ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/upcoming/odds"
-SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/football/fixtures"
+ODDS_API_URL = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
+SPORTMONKS_API_URL = "https://api.sportmonks.com/v3/baseball/fixtures"
 
-# ===== LEAGUE IDS =====
-# Using IDs from your plan for reliable filtering
-LEAGUE_IDS = [
-    8,     # Premier League (England)
-    564,   # La Liga (Spain)
-    384,   # Serie A (Italy)
-    82,    # Bundesliga (Germany)
-    301,   # Ligue 1 (France)
-    1371,  # UEFA Europa League Play-offs
-    24,    # FA Cup (England)
-    27,    # Carabao Cup (England)
-    570,   # Copa Del Rey (Spain)
-    390,   # Coppa Italia (Italy)
-    72,    # Eredivisie (Netherlands)
-    462,   # Liga Portugal (Portugal)
-    486,   # Premier League (Russia)
-    501,   # Premiership (Scotland)
-    573,   # Allsvenskan (Sweden)
-    591,   # Super League (Switzerland)
-    600,   # Super Lig (Turkey)
-    609,   # Premier League (Ukraine)
-]
+# ===== MLB LEAGUE ID =====
+MLB_LEAGUE_ID = 1  # Major League Baseball
 
 # ===== TEST API KEYS =====
 def test_api_keys():
     """Test API keys before proceeding"""
     # Test SportMonks API key
-    test_url = "https://api.sportmonks.com/v3/football/leagues"
+    test_url = "https://api.sportmonks.com/v3/baseball/leagues"
     try:
         response = requests.get(
             test_url,
@@ -76,31 +56,26 @@ def test_api_keys():
         logging.error(f"❌ SportMonks API test failed: {str(e)}")
         return False
 
-# ===== FETCH FIXTURE DATA =====
+# ===== FETCH MLB FIXTURE DATA =====
 def get_fixture_data():
     try:
-        logging.info("🔍 Fetching fixture data...")
+        logging.info("🔍 Fetching MLB fixture data...")
         
         # Calculate date range
         today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        day_after_tomorrow = today + timedelta(days=2)
+        end_date = today + timedelta(days=3)  # Next 3 days
         
-        # Format dates for API
-        start_date = today.strftime("%Y-%m-%d")
-        end_date = day_after_tomorrow.strftime("%Y-%m-%d")
-        
-        # Fetch fixtures with league filters
+        # Fetch MLB fixtures
         response = requests.get(
             SPORTMONKS_API_URL,
             params={
                 "api_token": SPORTMONKS_API_KEY,
                 "include": "participants,league",
                 "per_page": 50,
-                "leagues": ",".join(map(str, LEAGUE_IDS)),
+                "leagues": str(MLB_LEAGUE_ID),
                 "filters": "upcoming",
-                "start_date": start_date,
-                "end_date": end_date
+                "start_date": today.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d")
             },
             timeout=15
         )
@@ -117,7 +92,18 @@ def get_fixture_data():
         data = response.json()
         fixtures = data.get('data', [])
         
-        logging.info(f"📊 Found {len(fixtures)} fixtures from selected leagues")
+        # Log some debug information
+        if fixtures:
+            logging.info(f"📊 Found {len(fixtures)} MLB fixtures")
+            for fixture in fixtures:
+                start_time = fixture.get('starting_at', 'N/A')
+                participants = fixture.get('participants', [])
+                home = participants[0]['name'] if participants else 'Unknown'
+                away = participants[1]['name'] if len(participants) > 1 else 'Unknown'
+                logging.info(f"  ⚾ {home} vs {away} on {start_time}")
+        else:
+            logging.info("ℹ️ No MLB fixtures found in API response")
+            
         return fixtures
 
     except requests.RequestException as e:
@@ -127,16 +113,16 @@ def get_fixture_data():
         logging.error(f"❌ Unexpected error in get_fixture_data: {str(e)}")
         return []
 
-# ===== FETCH ODDS DATA =====
+# ===== FETCH MLB ODDS DATA =====
 def get_odds_data():
     try:
-        logging.info("🎲 Fetching odds data...")
+        logging.info("🎲 Fetching MLB odds data...")
         response = requests.get(
             ODDS_API_URL,
             params={
-                "regions": "eu",
-                "markets": "h2h",
-                "oddsFormat": "decimal",
+                "regions": "us",  # Use US region for baseball
+                "markets": "h2h,totals",  # Moneyline and Over/Under
+                "oddsFormat": "american",  # American odds for baseball
                 "apiKey": ODDS_API_KEY
             },
             timeout=15
@@ -159,49 +145,78 @@ def get_odds_data():
         logging.error(f"❌ Unexpected error in get_odds_data: {str(e)}")
         return None
 
-# ===== ANALYZE BETTING MARKETS =====
-def analyze_betting_markets(odds_data, home_team, away_team):
+# ===== ANALYZE MLB BETTING MARKETS =====
+def analyze_mlb_betting(odds_data, home_team, away_team):
     if not odds_data:
-        return "⚠️ No odds data available"
+        return "⚠️ No odds data available", "⚠️ No odds data available"
     
     try:
+        money_line_analysis = "⚠️ Moneyline data not found"
+        over_under_analysis = "⚠️ Over/Under data not found"
+        
         for match in odds_data:
             if match.get('home_team') == home_team and match.get('away_team') == away_team:
-                # Find best home and away odds
+                # Money Line Analysis
                 home_odds = []
                 away_odds = []
                 
+                # Over/Under Analysis
+                over_odds = []
+                under_odds = []
+                total_points = None
+                
                 for bookmaker in match.get('bookmakers', []):
                     for market in bookmaker.get('markets', []):
+                        # Money Line (H2H)
                         if market['key'] == 'h2h':
                             for outcome in market['outcomes']:
                                 if outcome['name'] == home_team:
                                     home_odds.append(outcome['price'])
                                 elif outcome['name'] == away_team:
                                     away_odds.append(outcome['price'])
+                        
+                        # Over/Under
+                        elif market['key'] == 'totals':
+                            for outcome in market['outcomes']:
+                                if outcome['name'] == 'Over':
+                                    over_odds.append(outcome['price'])
+                                    total_points = outcome['point']
+                                elif outcome['name'] == 'Under':
+                                    under_odds.append(outcome['price'])
                 
-                if not home_odds or not away_odds:
-                    return "⚠️ Incomplete odds data"
+                # Money Line Analysis
+                if home_odds and away_odds:
+                    best_home = max(home_odds)
+                    best_away = max(away_odds)
+                    
+                    if best_home < best_away:
+                        money_line_analysis = f"🏠 {home_team} WIN (Best: {best_home:+d})"
+                    else:
+                        money_line_analysis = f"✈️ {away_team} WIN (Best: {best_away:+d})"
                 
-                best_home = max(home_odds)
-                best_away = max(away_odds)
+                # Over/Under Analysis
+                if over_odds and under_odds and total_points:
+                    best_over = max(over_odds)
+                    best_under = max(under_odds)
+                    
+                    # Simple analysis - which has better value
+                    if best_over < best_under:
+                        over_under_analysis = f"⬆️ OVER {total_points} (Best: {best_over:+d})"
+                    else:
+                        over_under_analysis = f"⬇️ UNDER {total_points} (Best: {best_under:+d})"
                 
-                # Simple analysis - which team has better odds
-                if best_home < best_away:
-                    return f"🏠 {home_team} WIN (Best: {best_home:.2f})"
-                else:
-                    return f"✈️ {away_team} WIN (Best: {best_away:.2f})"
+                break  # Found our match, exit loop
         
-        return "⚠️ No matching odds found"
+        return money_line_analysis, over_under_analysis
         
     except Exception as e:
         logging.error(f"❌ Error analyzing betting markets: {str(e)}")
-        return "⚠️ Analysis error"
+        return "⚠️ Analysis error", "⚠️ Analysis error"
 
 # ===== FORMAT TELEGRAM MESSAGE =====
 def format_telegram_message(odds_data, fixture_data):
     if not fixture_data:
-        return "⚠️ No upcoming fixtures found in selected leagues"
+        return "⚠️ No upcoming MLB games found in the next 3 days"
     
     try:
         # Sort fixtures by date
@@ -215,36 +230,37 @@ def format_telegram_message(odds_data, fixture_data):
         home = participants[0].get('name', 'Home Team')
         away = participants[1].get('name', 'Away Team')
         start_time = fixture.get('starting_at', '')
-        league_name = fixture.get('league', {}).get('name', 'Unknown League')
+        venue = fixture.get('venue', {}).get('name', 'Unknown Stadium')
         
-        # Format date and time
+        # Format date and time (convert to Eastern Time)
         if "T" in start_time:
             date_str = start_time.split("T")[0]
             time_part = start_time.split("T")[1]
-            time_str = time_part[:5] if len(time_part) >= 5 else "N/A"
-        elif " " in start_time:
-            parts = start_time.split(" ")
-            date_str = parts[0] if len(parts) > 0 else "N/A"
-            time_str = parts[1][:5] if len(parts) > 1 and len(parts[1]) >= 5 else "N/A"
+            utc_time = datetime.strptime(f"{date_str} {time_part[:5]}", "%Y-%m-%d %H:%M")
+            et_time = utc_time - timedelta(hours=4)  # UTC to ET conversion
+            time_str = et_time.strftime("%I:%M %p ET")
         else:
             date_str = start_time[:10] if len(start_time) >= 10 else "N/A"
             time_str = "N/A"
         
-        # Analyze betting market
-        money_line = analyze_betting_markets(odds_data, home, away)
+        # Analyze betting markets
+        money_line, over_under = analyze_mlb_betting(odds_data, home, away)
         
         # Build message
         message = f"""
-🎯 *BETTING RECOMMENDATION* 🎯
-⚽️ *{html.escape(home)} vs {html.escape(away)}*
-🏆 *League:* {html.escape(league_name)}
-📅 *Date:* {date_str} | ⏰ *Time:* {time_str} UTC
+⚾ *MLB BETTING RECOMMENDATION* ⚾
+🏟️ *Matchup:* {html.escape(home)} vs {html.escape(away)}
+📍 *Venue:* {venue}
+📅 *Date:* {date_str} | ⏰ *Time:* {time_str}
 ─────────────────
         
-🟩 *MONEY LINE WINNER:*
+💰 *MONEY LINE:*
    {money_line}
+        
+📊 *OVER/UNDER:*
+   {over_under}
 ─────────────────
-💡 *TIP:* Based on best available odds
+💡 *TIP:* Based on best available odds across bookmakers
 """
         return message
         
@@ -278,7 +294,7 @@ def send_telegram_message(message):
 
 # ===== MAIN EXECUTION =====
 if __name__ == "__main__":
-    logging.info("🚀 Starting Betting Alert Script...")
+    logging.info("🚀 Starting MLB Betting Alert Script...")
     
     # Test API keys first
     if not test_api_keys():
@@ -288,15 +304,18 @@ if __name__ == "__main__":
         exit(1)
     
     # Get data from APIs
+    logging.info("🔍 Fetching MLB fixture data...")
     fixture_data = get_fixture_data()
-    odds_data = get_odds_data()
     
     if not fixture_data:
-        warning_msg = "⚠️ No upcoming fixtures found in selected leagues"
+        warning_msg = "⚠️ No upcoming MLB games found in the next 3 days"
         logging.warning(warning_msg)
         send_telegram_message(warning_msg)
         logging.info("🏁 Script completed")
         exit(0)
+    
+    logging.info("🎲 Fetching MLB odds data...")
+    odds_data = get_odds_data()
     
     # Format message
     message = format_telegram_message(odds_data, fixture_data)
