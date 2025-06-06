@@ -114,13 +114,13 @@ message += "─────────────────\n"
 message += "🟩 *MONEY LINE WINNER:*\n"
    {analysis.get('money_line', '⚠️ No data')}
 
-📊 *SPREAD WINNER:*
+message += "📊 *SPREAD WINNER:*\n"
    {analysis.get('spread', '⚠️ No data')}
 
-📈 *OVER/UNDER WINNER:*
+message += "📈 *OVER/UNDER WINNER:*\n"
    {analysis.get('over_under', '⚠️ No data')}
 
-✌️ *DOUBLE CHANCE WINNER:*
+message += "✌️ *DOUBLE CHANCE WINNER:*\n"
    {analysis.get('double_chance', '⚠️ No data')}
 ─────────────────
 💡 *TIP:* Picks are based on best bookmaker odds & probabilities
