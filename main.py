@@ -2,7 +2,7 @@ import requests
 from datetime import datetime, timedelta
 
 # ===== 🔐 API Keys & Tokens =====
-ODDS_API_KEY = "85c7c9d1acaad09cae7e93ea02f627ae"
+ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
 SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
