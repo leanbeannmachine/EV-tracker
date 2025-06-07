@@ -226,7 +226,7 @@ def format_game_time(time_str):
     try:
         # Remove milliseconds if present
         if '.' in time_str:
-            time_str = time_str.split('.')[0]
+            time_str = time_str.split('.')[0] + 'Z'
         # Ensure UTC timezone format
         if time_str.endswith('Z'):
             time_str = time_str[:-1] + '+00:00'
@@ -271,9 +271,11 @@ def format_odds(odds_game, home_team, away_team):
                         home_odds = outcome['price']
                     elif outcome['name'] == away_team:
                         away_odds = outcome['price']
+                # Exit after finding the market
+                break
         
-        # Analyze moneyline with EV model
-        if home_odds and away_odds:
+        # Analyze moneyline with EV model if odds are found
+        if home_odds is not None and away_odds is not None:
             analysis = EV_MODEL.analyze_moneyline(
                 home_team, away_team, home_odds, away_odds
             )
@@ -291,6 +293,8 @@ def format_odds(odds_game, home_team, away_team):
             # Add value alert for significant EV
             if analysis['ev'] > 0.05:
                 value_alert = f"💰 <b>+EV BET:</b> {analysis['projected_winner']} (EV: {analysis['ev']:+.2f})"
+        else:
+            money_line = "⚠️ Moneyline odds not available"
         
         # Extract over/under
         for market in bookmaker['markets']:
@@ -305,12 +309,16 @@ def format_odds(odds_game, home_team, away_team):
                     elif outcome['name'] == 'Under':
                         under_odds = outcome['price']
                 
-                if over_odds and under_odds:
+                if over_odds is not None and under_odds is not None:
                     over_under = (
                         f"📊 <b>O/U {point}</b>\n"
                         f"⬆️ Over: {over_odds}\n"
                         f"⬇️ Under: {under_odds}"
                     )
+                else:
+                    over_under = "⚠️ Totals odds not available"
+                # Exit after finding the market
+                break
         
         return money_line, over_under, value_alert
         
@@ -329,6 +337,7 @@ def send_telegram_message(message):
             "disable_web_page_preview": True
         }
         response = requests.post(url, json=payload, timeout=15)
+        response.raise_for_status()
         if response.status_code == 200:
             logger.info("✅ Telegram message sent")
         else:
@@ -359,18 +368,23 @@ def main():
     
     # Process each game
     for game in games:
+        # Skip games not scheduled
+        if game['status'] not in ['Scheduled', 'Pre-Game', 'Delayed']:
+            logger.info(f"Skipping {game['home']} vs {game['away']} (status: {game['status']})")
+            continue
+            
         # Match game with odds
         odds_game = match_game_with_odds(game, odds_data)
         money_line, over_under, value_alert = format_odds(
             odds_game, game['home'], game['away']
         )
         
-        # Format game time
-        game_time = format_game_time(game['time'])
-        
         # Add value bets to list
         if value_alert:
             value_bets.append(value_alert)
+        
+        # Format game time
+        game_time = format_game_time(game['time'])
         
         # Add to report
         report += (
