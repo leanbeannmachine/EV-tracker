@@ -151,29 +151,28 @@ def is_today_game(game_time_str):
 def main():
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
-        for game in games:
-            commence_time = game.get('commence_time')
-            if not is_today_game(commence_time):
-                continue
+    for game in games:
+        for bookmaker in game.get('bookmakers', []):
+            for market in bookmaker.get('markets', []):
+            market_key = market['key']
+            best_outcome = None
+            best_ev = -999
 
-            for bookmaker in game.get('bookmakers', []):
-                for market in bookmaker.get('markets', []):
-                    market_type = market.get('key')
-                    best_outcome = None
-best_ev = -999  # or some very low number
+            for outcome in market.get('outcomes', []):
+                odds = outcome.get('price')
+                if odds is None:
+                    continue
 
-for outcome in market.get('outcomes', []):
-    odds = outcome.get('price')
-    if odds is None:
-        continue
-    ev = calculate_ev(odds, game)  # Use your existing EV calculation function
-    if ev > best_ev:
-        best_ev = ev
-        best_outcome = outcome
+                ev = calculate_ev(odds, game)  # Use your own EV function
+                if ev > best_ev:
+                    best_ev = ev
+                    best_outcome = outcome
 
-if best_outcome and best_ev >= YOUR_MIN_EV_THRESHOLD:  # e.g., 3.0% or whatever you want
-    message = format_message(game, market_key, best_outcome, best_outcome['price'], best_ev, game['commence_time'])
-    send_telegram_alert(message)
-
+            if best_outcome and best_ev >= 3.0:  # Set your EV threshold
+                message = format_message(
+                    game, market_key, best_outcome,
+                    best_outcome['price'], best_ev, game['commence_time']
+                )
+                send_telegram_alert(message)
 if __name__ == "__main__":
     main()
