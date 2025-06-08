@@ -21,6 +21,24 @@ TELEGRAM_CHAT_ID = "964091254"
 SPORT = "baseball_mlb"
 TIMEZONE = "America/New_York"  # Change to your preferred timezone
 
+# ===== TELEGRAM FUNCTION =====
+def send_telegram_message(message):
+    """Send message via Telegram bot"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code != 200:
+            logger.error(f"❌ Telegram send error: {response.status_code} - {response.text}")
+        else:
+            logger.info("📤 Report sent to Telegram")
+    except Exception as e:
+        logger.error(f"❌ Telegram error: {str(e)}")
+
 # ===== ADVANCED EV CALCULATOR =====
 class EVCalculator:
     def __init__(self):
@@ -342,6 +360,8 @@ def format_odds(odds_game, home_team, away_team):
             
             if ev > 0.05:
                 value_bets.append(f"💰 +EV RL: {favorite} covers {spread} (EV: {ev:+.2f})")
+        else:
+            logger.warning(f"⚠️ Run line data incomplete for {away_team} vs {home_team}")
         
         # Process Totals (Over/Under)
         totals_odds = extract_odds(bookmaker, 'totals', ['Over', 'Under'])
@@ -368,92 +388,7 @@ def format_odds(odds_game, home_team, away_team):
         logger.error(f"❌ Odds formatting error: {str(e)}")
         return "", "", "", []
 
-# ... [Keep all your existing code above the format_odds function] ...
-
-# ===== FORMAT ODDS WITH PROJECTIONS (FIXED) =====
-def format_odds(odds_game, home_team, away_team):
-    """Format odds with EV projections - with robust error handling"""
-    value_bets = []
-    output = ""
-    
-    # Moneyline
-    ml_data = None
-    for bookmaker in odds_game.get('bookmakers', []):
-        ml_data = extract_odds(bookmaker, "h2h", ["home", "away"])
-        if ml_data and len(ml_data) == 2:
-            break
-    
-    if ml_data and len(ml_data) == 2:
-        home_ml, away_ml = ml_data
-        try:
-            home_prob = EV_MODEL.calculate_ev(home_ml, market="ml", is_home=True)
-            away_prob = EV_MODEL.calculate_ev(away_ml, market="ml", is_home=False)
-            
-            if home_prob > 0.52:
-                value_bets.append(f"✅ {home_team} ML: {home_ml} (EV: {home_prob:.2f})")
-            if away_prob > 0.52:
-                value_bets.append(f"✅ {away_team} ML: {away_ml} (EV: {away_prob:.2f})")
-        except Exception as e:
-            logger.error(f"❌ ML calculation error: {str(e)}")
-            
-        output += f"💰 <b>Moneyline</b>\n🏠 {home_team}: {home_ml}\n✈️ {away_team}: {away_ml}\n\n"
-
-    # Run Line - with robust error handling
-    rl_data = None
-    for bookmaker in odds_game.get('bookmakers', []):
-        rl_data = extract_odds(bookmaker, "spreads", ["home", "away"])
-        if rl_data and len(rl_data) == 2:
-            break
-    
-    if rl_data and len(rl_data) == 2:
-        try:
-            home_rl, away_rl = rl_data
-            home_prob = EV_MODEL.calculate_ev(home_rl, market="rl", is_home=True)
-            away_prob = EV_MODEL.calculate_ev(away_rl, market="rl", is_home=False)
-            
-            if home_prob > 0.52:
-                value_bets.append(f"✅ {home_team} RL: {home_rl} (EV: {home_prob:.2f})")
-            if away_prob > 0.52:
-                value_bets.append(f"✅ {away_team} RL: {away_rl} (EV: {away_prob:.2f})")
-                
-            output += f"📏 <b>Run Line</b>\n🏠 {home_team}: {home_rl}\n✈️ {away_team}: {away_rl}\n\n"
-        except Exception as e:
-            logger.error(f"❌ RL calculation error: {str(e)}")
-    else:
-        logger.warning(f"⚠️ Run line data incomplete for {home_team} vs {away_team}")
-
-    # Totals
-    totals_data = None
-    for bookmaker in odds_game.get('bookmakers', []):
-        totals_data = extract_odds(bookmaker, "totals", ["over", "under"])
-        if totals_data and len(totals_data) == 2:
-            break
-    
-    if totals_data and len(totals_data) == 2:
-        try:
-            over_odds, under_odds = totals_data
-            over_prob = EV_MODEL.calculate_ev(over_odds, market="total", is_over=True)
-            under_prob = EV_MODEL.calculate_ev(under_odds, market="total", is_over=False)
-            
-            if over_prob > 0.52:
-                value_bets.append(f"✅ Over: {over_odds} (EV: {over_prob:.2f})")
-            if under_prob > 0.52:
-                value_bets.append(f"✅ Under: {under_odds} (EV: {under_prob:.2f})")
-                
-            output += f"📊 <b>Totals</b>\n⬆️ Over: {over_odds}\n⬇️ Under: {under_odds}\n\n"
-        except Exception as e:
-            logger.error(f"❌ Totals calculation error: {str(e)}")
-    
-    # Add value bets footer
-    if value_bets:
-        output += "🔥 <b>Value Bets</b>\n" + "\n".join(value_bets) + "\n"
-    
-    output += "────────────────────────\n"
-    return output, value_bets
-
-# ... [Keep all your existing code above the main function] ...
-
-# ===== MAIN FUNCTION (FIXED) =====
+# ===== MAIN FUNCTION =====
 def main():
     logger.info("🚀 Starting MLB betting report generator")
     
@@ -499,13 +434,13 @@ def main():
             f"⏰ {game['time']} • {game['status']}\n\n"
         )
         
-        # Format odds with projections (FIXED CALL)
-        odds_section, game_value_bets = format_odds(
+        # Format odds with projections
+        money_line_section, runline_section, totals_section, game_value_bets = format_odds(
             odds_game, game['home'], game['away']
         )
         
         # Add to report
-        report += game_header + odds_section
+        report += game_header + money_line_section + runline_section + totals_section
         all_value_bets.extend(game_value_bets)
     
     # Add top value bets section if any
@@ -527,8 +462,6 @@ def main():
     logger.info(f"📝 Generated report for {len(games)} games")
     send_telegram_message(report)
     logger.info("✅ Report completed successfully")
-
-# ... [Keep the rest of your existing code unchanged] ...
 
 # ===== ENTRY POINT =====
 if __name__ == "__main__":
