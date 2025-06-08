@@ -134,8 +134,8 @@ def main():
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
         for game in games:
-    commence_time = game.get('commence_time')
-    if not commence_time or not is_game_today(commence_time):
+        commence_time = game.get('commence_time')
+        if not commence_time or not is_game_today(commence_time):
         continue  # skip games not starting today
 
             for bookmaker in game.get('bookmakers', []):
