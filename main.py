@@ -98,7 +98,7 @@ def format_message(game, sport_name, bet_type, outcome_name, odds, ev, commence_
         f"{away} @ {home}\n\n"
         f"{bet_emoji}\n"
         f"Pick: {outcome_name}\n"
-        f"Odds: {odds}\n"
+        odds = outcome["price"]
         f"Expected Value: {ev * 100:.1f}%\n"
         f"{ev_label}\n"
         f"Good luck! 🍀\n"
