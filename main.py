@@ -72,7 +72,7 @@ def format_message(game, market, outcome, odds, ev, start_time):
     )
 
 def send_telegram_message(message):
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     try:
         bot.send_message(chat_id=CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
     except telegram.error.TelegramError as e:
