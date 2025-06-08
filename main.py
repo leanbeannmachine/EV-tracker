@@ -68,9 +68,18 @@ def format_message(game, market, outcome, odds, ev, start_time):
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
     reasoning = generate_reasoning(market, team)
 
+        # Show line for spreads/totals if available
+    line_info = ""
+    if market == "spreads" and 'point' in outcome:
+        line_info = f" {outcome['point']:+.1f}"
+    elif market == "totals" and 'point' in outcome:
+        line_info = f" {outcome['point']:.1f}"
+
+    team_line = f"{team}{line_info}"
+
     return (
         f"📊 *{market.upper()}*\n"
-        f"*Pick:* {team}\n"
+        f"*Pick:* {team_line}\n"
         f"*Odds:* {odds_str}\n"
         f"*Expected Value:* {ev:.1f}%\n"
         f"{label}\n"
