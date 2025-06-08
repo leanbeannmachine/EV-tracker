@@ -15,7 +15,6 @@ SPORTS = [
     "basketball_wnba",
     "soccer_usa_mls",
     "soccer_usa_nwsl",  # Fixed key
-    "mma_mixed_martial_arts"
 ]
 
 def fetch_odds_for_sport(sport_key):
