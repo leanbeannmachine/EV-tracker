@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytz
 import telegram
 
-THE_ODDS_API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
+API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
