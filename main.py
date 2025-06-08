@@ -3,6 +3,12 @@ from datetime import datetime, timedelta
 import pytz
 import telegram
 
+def is_game_today(commence_time):
+    eastern = pytz.timezone('US/Eastern')
+    now = datetime.now(eastern).date()
+    game_time = datetime.fromisoformat(commence_time.replace('Z', '+00:00')).astimezone(eastern).date()
+    return game_time == now
+
 API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
@@ -128,7 +134,9 @@ def main():
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
         for game in games:
-            commence_time = game.get('commence_time')
+    commence_time = game.get('commence_time')
+    if not commence_time or not is_game_today(commence_time):
+        continue  # skip games not starting today
 
             for bookmaker in game.get('bookmakers', []):
                 for market in bookmaker.get('markets', []):
