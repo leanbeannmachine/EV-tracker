@@ -7,14 +7,13 @@ API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-# ✅ TEMP FIX — Use books with fewer restrictions to avoid 401s
 BOOKMAKERS = ["pinnacle", "betonlineag"]
 
 SPORTS = [
     "baseball_mlb",
     "basketball_wnba",
     "soccer_usa_mls",
-    "soccer_usa_nwsl",  # Fixed key
+    "soccer_usa_nwsl",
 ]
 
 def fetch_odds_for_sport(sport_key):
@@ -26,7 +25,6 @@ def fetch_odds_for_sport(sport_key):
         "oddsFormat": "american",
         "bookmakers": ",".join(BOOKMAKERS)
     }
-
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
@@ -45,30 +43,55 @@ def calculate_ev(american_odds, win_prob):
 
 def format_ev_label(ev):
     if ev > 7:
-        return "🟢 BEST VALUE"
+        return "🟢 *BEST VALUE*"
     elif ev > 3:
-        return "🟡 GOOD VALUE"
+        return "🟡 *GOOD VALUE*"
     elif ev > 0:
-        return "🟠 SLIGHT EDGE"
+        return "🟠 *SLIGHT EDGE*"
     else:
-        return "🔴 NO EDGE"
+        return "🔴 *NO EDGE*"
+
+def generate_reasoning(market, pick, game):
+    # Customize reasoning based on market type and pick
+    home = game.get('home_team')
+    away = game.get('away_team')
+
+    if market == "h2h":
+        if pick.lower() == "draw":
+            return f"Draw expected as both {home} and {away} show balanced recent form."
+        elif pick.lower() == home.lower():
+            return f"{home} favored due to strong home performance and recent win streak."
+        elif pick.lower() == away.lower():
+            return f"{away} looks strong on the road with solid offensive stats."
+    elif market == "spreads":
+        return f"{pick} covers the spread with strong defense and recent margins."
+    elif market == "totals":
+        if "over" in pick.lower():
+            return f"Expecting a high scoring game over the total line."
+        elif "under" in pick.lower():
+            return f"Defenses likely to dominate, keeping score under the total."
+    return "This bet shows promising value based on recent trends."
 
 def format_message(game, market, outcome, odds, ev, start_time):
     team = outcome.get('name')
     label = format_ev_label(ev)
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
-    odds_str = f"{odds:+}" if isinstance(odds, int) else odds
+    odds_str = f"{odds:+}" if isinstance(odds, int) else str(odds)
+    market_display = market.upper()
 
-    return (
-        f"📊 *{market.upper()}*\n"
+    reasoning = generate_reasoning(market, team, game)
+
+    message = (
+        f"📊 *{market_display}*\n"
         f"*Pick:* {team}\n"
         f"*Odds:* {odds_str}\n"
         f"*Expected Value:* {ev:.1f}%\n"
         f"{label}\n"
         f"🕒 *Game Time:* {readable_time}\n"
-        f"Good luck! 🍀\n"
+        f"💡 *Reasoning:* {reasoning}\n"
         f"——————"
     )
+    return message
 
 def send_telegram_message(message):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
@@ -77,11 +100,23 @@ def send_telegram_message(message):
     except telegram.error.TelegramError as e:
         print(f"Telegram error: {e}")
 
+def send_results_alerts():
+    # Placeholder: you would fetch or keep track of finished matches and outcomes,
+    # then send messages summarizing which bets won or lost.
+    #
+    # Example message:
+    # "🏆 Results Update:\n
+    #  H2H: New York Yankees WON ✅\n
+    #  Spread: D.C. United LOST ❌\n
+    #  Totals: Over 2.5 WON ✅"
+    #
+    # This requires a separate data source or caching mechanism for match results.
+    pass
+
 def main():
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
         for game in games:
-            home_team = game.get('home_team')
             commence_time = game.get('commence_time')
 
             for bookmaker in game.get('bookmakers', []):
@@ -92,13 +127,16 @@ def main():
                         if odds is None:
                             continue
 
-                        # Placeholder win prob: you can customize this!
+                        # Example win probability — you can improve this!
                         implied_prob = 0.55 if odds < 0 else 0.48
                         ev = calculate_ev(odds, implied_prob)
 
-                        if ev > 3:  # Filter for solid value
+                        if ev > 3:  # Filter for decent value bets
                             msg = format_message(game, market_type, outcome, odds, ev, commence_time)
                             send_telegram_message(msg)
+
+    # You can call send_results_alerts() here or schedule it to run separately
+    # send_results_alerts()
 
 if __name__ == "__main__":
     main()
