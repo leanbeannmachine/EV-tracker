@@ -211,7 +211,7 @@ if best_outcome and 3.0 <= best_ev <= 15.0:
         game['commence_time']
     )
     send_telegram_message(message)
-    sent_any = True   
+    sent_any = True
                         save_result_log({
                             "sport": sport,
                             "market": market_key,
