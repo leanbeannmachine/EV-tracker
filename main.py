@@ -19,7 +19,7 @@ THE_ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 SPORT = "baseball_mlb"
-TIMEZONE = "America/New_York"  # Change to your preferred timezone
+TIMEZONE = "America/Chicago"  # Correct identifier for CST/CDT (Central Time)
 
 # ===== TELEGRAM FUNCTION =====
 def send_telegram_message(message):
