@@ -3,6 +3,48 @@ from datetime import datetime, timedelta
 import pytz
 import telegram
 
+import random
+
+def generate_reasoning(market_key, team_name):
+    team = team_name.split()[-1] if team_name else "this team"
+
+    if market_key == "spreads":
+        reasons = [
+            f"{team} has consistently covered recent spreads due to strong defense.",
+            f"{team}'s margin of victory trends well against this line.",
+            f"{team} matches up well and tends to outperform expectations.",
+            f"Based on recent form, {team} has value on this spread.",
+        ]
+    elif market_key == "totals":
+        if "Over" in team_name:
+            reasons = [
+                "Both teams play at a fast pace, suggesting a high-scoring affair.",
+                "Recent matchups show consistent totals going over this line.",
+                "Offensive efficiency is expected to push the game over.",
+                "Scoring trends favor the over in this matchup.",
+            ]
+        else:
+            reasons = [
+                "Defensive intensity and slower tempo point to a low-scoring game.",
+                "Recent totals between these teams tend to fall short of this line.",
+                "Offensive struggles make the under appealing here.",
+                "Pace and recent form favor the under hitting.",
+            ]
+    elif market_key == "h2h":
+        reasons = [
+            f"{team} has the edge based on recent form and matchups.",
+            f"Momentum and team stats favor {team} to win outright.",
+            f"{team} has outperformed opponents in similar spots.",
+            f"Confidence in {team} stems from both recent wins and depth.",
+        ]
+    else:
+        reasons = [
+            f"{team} is in a strong position based on matchup metrics.",
+            "Value play based on line movement and implied probabilities.",
+        ]
+
+    return random.choice(reasons)
+
 API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
@@ -61,37 +103,29 @@ def generate_reasoning(market, team):
         return "Expected game tempo and efficiency favor this total line."
     return "No specific reasoning available."
 
+
 def format_message(game, market, outcome, odds, ev, start_time):
     market_key = market.lower()
-team = outcome.get('name', '')
-line_info = ""
+    team = outcome.get('name', '')
+    line_info = ""
 
-# Add line for spreads and totals
-if market_key == "spreads" and 'point' in outcome:
-    line_info = f" {outcome['point']:+.1f}"
-elif market_key == "totals" and 'point' in outcome:
-    line_info = f" {outcome['point']:.1f}"
+    # Add line for spreads and totals
+    if market_key == "spreads" and 'point' in outcome:
+        line_info = f" {outcome['point']:+.1f}"
+    elif market_key == "totals" and 'point' in outcome:
+        line_info = f" {outcome['point']:.1f}"
 
-# If outcome name is missing (like totals), build team label
-if not team:
-    home = game.get("home_team", "")
-    away = game.get("away_team", "")
-    team = f"{away} vs {home}"
+    # If outcome name is missing (like totals), build team label
+    if not team:
+        home = game.get("home_team", "")
+        away = game.get("away_team", "")
+        team = f"{away} vs {home}"
 
-team_line = f"{team}{line_info}"
+    team_line = f"{team}{line_info}"
     label = format_ev_label(ev)
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
     reasoning = generate_reasoning(market, team)
-
-        # Show line for spreads/totals if available
-    line_info = ""
-    if market == "spreads" and 'point' in outcome:
-        line_info = f" {outcome['point']:+.1f}"
-    elif market == "totals" and 'point' in outcome:
-        line_info = f" {outcome['point']:.1f}"
-
-    team_line = f"{team}{line_info}"
 
     return (
         f"📊 *{market.upper()}*\n"
@@ -103,7 +137,7 @@ team_line = f"{team}{line_info}"
         f"💡 *Reasoning:* {reasoning}\n"
         f"——————"
     )
-
+    
 def send_telegram_message(message):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     try:
