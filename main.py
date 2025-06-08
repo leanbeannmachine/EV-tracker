@@ -11,7 +11,6 @@ TELEGRAM_CHAT_ID = "964091254"
 
 BOOKMAKERS = ["pinnacle", "betonlineag"]
 SPORTS = ["baseball_mlb", "basketball_wnba"]
-
 RESULTS_FILE = "results.json"
 
 def generate_reasoning(market, team):
@@ -59,8 +58,8 @@ def format_ev_label(ev):
         return "🔴 *NO EDGE*"
 
 def is_today_game(game_time_str):
-    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
-    now = datetime.now(pytz.timezone('US/Eastern'))
+    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Central'))
+    now = datetime.now(pytz.timezone('US/Central'))
     return game_time.date() == now.date()
 
 def filter_today_games(games):
@@ -82,7 +81,7 @@ def format_message(game, market, outcome, odds, ev, start_time):
         team = f"{away} vs {home}"
 
     team_line = f"{team}{line_info}"
-    readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
+    readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Central')).strftime('%b %d, %I:%M %p CT')
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
     label = format_ev_label(ev)
     reasoning = generate_reasoning(market, team)
@@ -126,13 +125,12 @@ def check_and_update_results():
     with open(RESULTS_FILE, "r+") as f:
         results = json.load(f)
 
-    updated = []
     for entry in results:
         if entry.get("resolved"):
             continue
 
         start = datetime.fromisoformat(entry["game_time"])
-        if now - start >= timedelta(hours=12):  # Game should be done
+        if now - start >= timedelta(hours=12):
             score_url = f"https://api.the-odds-api.com/v4/sports/{entry['sport']}/scores"
             params = {"apiKey": API_KEY, "daysFrom": 2}
             try:
@@ -153,17 +151,6 @@ def check_and_update_results():
                                 outcome = "won"
                             else:
                                 outcome = "lost"
-                        elif entry["market"] == "totals":
-                            total = home_score + away_score
-                            if entry["type"] == "over" and total > entry["line"]:
-                                outcome = "won"
-                            elif entry["type"] == "under" and total < entry["line"]:
-                                outcome = "won"
-                            elif total == entry["line"]:
-                                outcome = "push"
-                            else:
-                                outcome = "lost"
-                        # TODO: Add spread support if needed
 
                         entry["result"] = outcome
                         entry["resolved"] = True
@@ -173,7 +160,6 @@ def check_and_update_results():
             except Exception as e:
                 print(f"❌ Error checking scores: {e}")
 
-    # Save updated list
     with open(RESULTS_FILE, "w") as f:
         json.dump(results, f, indent=2)
 
@@ -194,8 +180,7 @@ def main():
                         odds = outcome.get('price')
                         if odds is None:
                             continue
-
-                        win_prob = 0.5  # placeholder probability
+                        win_prob = 0.5  # Placeholder model
                         ev = calculate_ev(odds, win_prob)
                         if ev > best_ev:
                             best_ev = ev
@@ -219,9 +204,7 @@ def main():
                             "home": game.get("home_team"),
                             "away": game.get("away_team"),
                             "line": best_outcome.get("point", 0),
-                            "type": "over" if "over" in best_outcome.get("name", "").lower()
-                                    else "under" if "under" in best_outcome.get("name", "").lower()
-                                    else None,
+                            "type": "over" if "over" in best_outcome.get("name", "").lower() else "under" if "under" in best_outcome.get("name", "").lower() else None,
                             "game_time": game['commence_time'],
                             "resolved": False
                         })
@@ -232,7 +215,6 @@ def main():
         print("✅ Bets sent successfully.")
 
     check_and_update_results()
-
 
 if __name__ == "__main__":
     main()
