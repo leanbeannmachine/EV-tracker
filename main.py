@@ -153,7 +153,7 @@ def main():
         games = fetch_odds_for_sport(sport)
     for game in filtered_games:
         for bookmaker in game.get('bookmakers', []):
-    for market in bookmaker.get('markets', []):
+        for market in bookmaker.get('markets', []):
         market_key = market['key']
         best_outcome = None
         best_ev = -999
