@@ -368,10 +368,7 @@ def format_odds(odds_game, home_team, away_team):
         logger.error(f"❌ Odds formatting error: {str(e)}")
         return "", "", "", []
 
-# ===== SEND TELEGRAM MESSAGE =====
-# ... [Keep all your existing code above the send_telegram_message function] ...
-
-# ===== SEND TELEGRAM MESSAGE =====
+# ===== SEND TELEGRAM MESSAGE ==== #
 def send_telegram_message(message):
     """Send message to Telegram, splitting at game boundaries if too long"""
     def send_single_message(chunk):
@@ -391,6 +388,70 @@ def send_telegram_message(message):
         except Exception as e:
             logger.error(f"❌ Telegram send error: {str(e)}")
     
+    # Define our game separator
+    GAME_SEPARATOR = "────────────────────────\n\n"
+    
+    # Split message if it's too long
+    if len(message) <= MAX_MESSAGE_LENGTH:
+        send_single_message(message)
+        return
+    
+    # Split the message into chunks at game boundaries
+    logger.warning("⚠️ Message too long, splitting into chunks")
+    
+    # Extract the report header (everything before first game)
+    header_end = message.find(GAME_SEPARATOR)
+    if header_end == -1:
+        # If no game separator found, fallback to simple splitting
+        chunks = [message[i:i+MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
+        for i, chunk in enumerate(chunks):
+            send_single_message(f"📤 Part {i+1}/{len(chunks)}\n{chunk}")
+        return
+    
+    report_header = message[:header_end]
+    game_sections = message[header_end:].split(GAME_SEPARATOR)
+    
+    # Filter out empty sections
+    game_sections = [section.strip() for section in game_sections if section.strip()]
+    
+    # Reassemble chunks ensuring each is < MAX_MESSAGE_LENGTH
+    chunks = []
+    current_chunk = ""
+    
+    for i, section in enumerate(game_sections):
+        # Add the game separator back (except for first section in chunk)
+        formatted_section = f"{GAME_SEPARATOR}{section}" if current_chunk else section
+        
+        # Check if adding this section would exceed limit
+        if len(current_chunk) + len(formatted_section) > MAX_MESSAGE_LENGTH - 300:  # 300 char buffer for header/footer
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = formatted_section
+        else:
+            current_chunk += formatted_section
+    
+    # Add the last chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    # Send all chunks with proper headers
+    total_chunks = len(chunks)
+    for i, chunk in enumerate(chunks):
+        # Create chunk-specific header
+        chunk_header = (
+            f"{report_header}\n\n"
+            f"📤 <b>Part {i+1} of {total_chunks}</b>\n"
+            f"🔢 Games {i*3+1}-{min((i+1)*3, len(game_sections))} of {len(game_sections)}\n\n"
+        )
+        
+        # Combine header and chunk content
+        full_chunk = chunk_header + chunk
+        
+        # Add footer
+        full_chunk += f"\n\n────────────────────────\nPart {i+1}/{total_chunks}"
+        
+        # Send even if slightly over limit (Telegram allows 4096)
+        send_single_message(full_chunk)    
     # Define our game separator
     GAME_SEPARATOR = "────────────────────────\n\n"
     
