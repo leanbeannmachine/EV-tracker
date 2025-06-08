@@ -153,7 +153,7 @@ def main():
         games = fetch_odds_for_sport(sport)
         filtered_games = filter_today_games(games)
 
-        for game in all_games:
+        for game in filtered_games:
             for bookmaker in game.get('bookmakers', []):
                 for market in bookmaker.get('markets', []):
                     market_key = market['key']
@@ -165,13 +165,14 @@ def main():
                         if odds is None:
                             continue
 
-                        # Calculate EV using your model
-                        ev = calculate_ev(odds, game)
+                        # Replace with your actual win probability model
+                        win_prob = 0.5  
+
+                        ev = calculate_ev(odds, win_prob)
                         if ev > best_ev:
                             best_ev = ev
                             best_outcome = outcome
 
-                    # Only send one message per market per game if EV is decent
                     if best_outcome and best_ev >= 3.0:
                         message = format_message(
                             game,
@@ -181,7 +182,4 @@ def main():
                             best_ev,
                             game['commence_time']
                         )
-                        send_telegram_alert(message)
-
-if __name__ == "__main__":
-    main()
+                        send_telegram_message(message)
