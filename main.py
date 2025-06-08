@@ -185,6 +185,17 @@ class EVCalculator:
 # Initialize EV calculator
 EV_MODEL = EVCalculator()
 
+# ===== FORMATTING UTILITIES =====
+def format_odds_value(odds):
+    """Format odds with plus sign for positive values"""
+    return f"+{odds}" if odds > 0 else str(odds)
+
+def format_spread(spread):
+    """Format spread with plus sign for positive values"""
+    if isinstance(spread, float) and spread > 0:
+        return f"+{spread}"
+    return str(spread)
+
 # ===== API ENDPOINTS =====
 ODDS_URL = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
 SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
@@ -328,18 +339,18 @@ def format_odds(odds_game, home_team, away_team):
             winner, win_prob = EV_MODEL.predict_moneyline(home_team, away_team)
             odds = ml_odds[home_team] if winner == home_team else ml_odds[away_team]
             ev = EV_MODEL.calculate_ev(win_prob, odds)
-            rating = EV_MODEL.get_value_rating(ev)
-            color = EV_MODEL.get_ev_color(ev)
             
+            # Format moneyline section
             money_line_section = (
-                f"⭐ <b>Moneyline Projection</b>: {winner} ({win_prob:.1%} confidence)\n"
-                f"🏠 {home_team}: {ml_odds[home_team]}\n"
-                f"✈️ {away_team}: {ml_odds[away_team]}\n"
-                f"{color} <b>{rating}</b> (EV: {ev:+.2f})\n\n"
+                f"💰 Moneyline\n"
+                f"🏠 {home_team}: {format_odds_value(ml_odds[home_team])}\n"
+                f"✈️ {away_team}: {format_odds_value(ml_odds[away_team])}\n\n"
             )
             
             if ev > 0.05:
-                value_bets.append(f"💰 +EV ML: {winner} {ml_odds[winner]} (EV: {ev:+.2f})")
+                # Shorten team name for value bet
+                team_short = winner.split()[-1]
+                value_bets.append(f"✅ {team_short} ML: {format_odds_value(odds)} (EV: {ev:.2f})")
         
         # Process Run Line (Spread)
         spread_odds = extract_odds(bookmaker, 'spreads', [home_team, away_team])
@@ -347,19 +358,19 @@ def format_odds(odds_game, home_team, away_team):
             favorite, cover_prob, spread = EV_MODEL.predict_runline(home_team, away_team, spread_odds['point'])
             odds = spread_odds[favorite]
             ev = EV_MODEL.calculate_ev(cover_prob, odds)
-            rating = EV_MODEL.get_value_rating(ev)
-            color = EV_MODEL.get_ev_color(ev)
             
-            underdog = away_team if favorite == home_team else home_team
+            # Format runline section
             runline_section = (
-                f"⭐ <b>Run Line Projection</b>: {favorite} covers {spread} ({cover_prob:.1%} confidence)\n"
-                f"📏 {home_team} {spread_odds['point']}: {spread_odds[home_team]}\n"
-                f"📏 {away_team} {spread_odds['point']}: {spread_odds[away_team]}\n"
-                f"{color} <b>{rating}</b> (EV: {ev:+.2f})\n\n"
+                f"📏 Run Line\n"
+                f"🏠 {home_team}: {format_spread(spread_odds['point'])} ({format_odds_value(spread_odds[home_team])})\n"
+                f"✈️ {away_team}: {format_spread(-spread_odds['point'])} ({format_odds_value(spread_odds[away_team])})\n\n"
             )
             
             if ev > 0.05:
-                value_bets.append(f"💰 +EV RL: {favorite} covers {spread} (EV: {ev:+.2f})")
+                # Format team name for value bet
+                team_short = favorite.split()[-1]
+                spread_sign = "" if spread_odds['point'] < 0 else "+"
+                value_bets.append(f"✅ {team_short} RL: {spread_sign}{spread_odds['point']} {format_odds_value(odds)} (EV: {ev:.2f})")
         else:
             logger.warning(f"⚠️ Run line data incomplete for {away_team} vs {home_team}")
         
@@ -369,18 +380,16 @@ def format_odds(odds_game, home_team, away_team):
             winner, win_prob, point = EV_MODEL.predict_totals(home_team, away_team, totals_odds['point'])
             odds = totals_odds[winner]
             ev = EV_MODEL.calculate_ev(win_prob, odds)
-            rating = EV_MODEL.get_value_rating(ev)
-            color = EV_MODEL.get_ev_color(ev)
             
+            # Format totals section
             totals_section = (
-                f"⭐ <b>Over/Under Projection</b>: {winner} {point} ({win_prob:.1%} confidence)\n"
-                f"⬆️ Over {point}: {totals_odds['Over']}\n"
-                f"⬇️ Under {point}: {totals_odds['Under']}\n"
-                f"{color} <b>{rating}</b> (EV: {ev:+.2f})\n\n"
+                f"📊 Totals\n"
+                f"⬆️ Over: {point} ({format_odds_value(totals_odds['Over'])})\n"
+                f"⬇️ Under: {point} ({format_odds_value(totals_odds['Under'])})\n\n"
             )
             
             if ev > 0.05:
-                value_bets.append(f"💰 +EV O/U: {winner} {point} (EV: {ev:+.2f})")
+                value_bets.append(f"✅ {winner}: {point} (EV: {ev:.2f})")
         
         return money_line_section, runline_section, totals_section, value_bets
         
@@ -399,7 +408,7 @@ def main():
     
     if not games:
         message = (
-            f"⚾ <b>MLB Report - {today_str}</b>\n\n"
+            f"⚾ <b>MLB Value Bets - {today_str}</b>\n\n"
             f"No games scheduled today.\n\n"
             f"<i>Generated {local_time_str}</i>"
         )
@@ -410,11 +419,11 @@ def main():
     odds_data = get_odds_data()
     logger.info(f"📊 Retrieved odds for {len(odds_data)} games")
     
-    # Prepare simplified report header
+    # Prepare report header
     report = (
         f"⚾ <b>MLB Value Bets - {today_str}</b>\n\n"
         f"🕒 <i>Generated {local_time_str}</i>\n"
-        f"🔢 {len(games)} games • {len(odds_data)} with odds\n\n"
+        f"🔢 {len(games)} games • {len(odds_data)} with odds\n"
         "────────────────────────\n\n"
     )
     
@@ -440,8 +449,20 @@ def main():
         )
         
         # Add to report
-        report += game_header + money_line_section + runline_section + totals_section
-        all_value_bets.extend(game_value_bets)
+        report += game_header
+        report += money_line_section
+        report += runline_section
+        report += totals_section
+        
+        # Add value bets for this game
+        if game_value_bets:
+            report += "🔥 Value Bets\n"
+            for bet in game_value_bets:
+                report += bet + "\n"
+            all_value_bets.extend(game_value_bets)
+            report += "\n"
+        
+        report += "────────────────────────\n\n"
     
     # Add top value bets section if any
     if all_value_bets:
