@@ -451,7 +451,9 @@ def format_odds(odds_game, home_team, away_team):
     output += "────────────────────────\n"
     return output, value_bets
 
-# ... [Keep the rest of your code unchanged] ...# ===== MAIN FUNCTION =====
+# ... [Keep all your existing code above the main function] ...
+
+# ===== MAIN FUNCTION (FIXED) =====
 def main():
     logger.info("🚀 Starting MLB betting report generator")
     
@@ -462,9 +464,9 @@ def main():
     
     if not games:
         message = (
-            f"⚾ <b>MLB Betting Report - {today_str}</b>\n\n"
+            f"⚾ <b>MLB Report - {today_str}</b>\n\n"
             f"No games scheduled today.\n\n"
-            f"<i>Generated at {local_time_str}</i>"
+            f"<i>Generated {local_time_str}</i>"
         )
         send_telegram_message(message)
         return
@@ -473,11 +475,11 @@ def main():
     odds_data = get_odds_data()
     logger.info(f"📊 Retrieved odds for {len(odds_data)} games")
     
-    # Prepare report header
+    # Prepare simplified report header
     report = (
-        f"⚾ <b>MLB BETTING REPORT - {today_str}</b>\n\n"
-        f"🕒 <i>Generated at {local_time_str}</i>\n\n"
-        f"🔍 <i>{len(games)} games • {len(odds_data)} with odds</i>\n\n"
+        f"⚾ <b>MLB Value Bets - {today_str}</b>\n\n"
+        f"🕒 <i>Generated {local_time_str}</i>\n"
+        f"🔢 {len(games)} games • {len(odds_data)} with odds\n\n"
         "────────────────────────\n\n"
     )
     
@@ -494,52 +496,39 @@ def main():
         games_with_odds += 1
         game_header = (
             f"<b>{game['away']} @ {game['home']}</b>\n"
-            f"🏟️ {game['venue']}\n"
-            f"🕒 {game['time']} • {game['status']}\n\n"
+            f"⏰ {game['time']} • {game['status']}\n\n"
         )
         
-        # Format odds with projections
-        ml_section, rl_section, totals_section, value_bets = format_odds(
+        # Format odds with projections (FIXED CALL)
+        odds_section, game_value_bets = format_odds(
             odds_game, game['home'], game['away']
         )
         
-        # Build game report
-        game_report = game_header
-        if ml_section:
-            game_report += ml_section
-        if rl_section:
-            game_report += rl_section
-        if totals_section:
-            game_report += totals_section
-        
-        game_report += "────────────────────────\n\n"
-        
-        # Add to main report
-        report += game_report
-        all_value_bets.extend(value_bets)
+        # Add to report
+        report += game_header + odds_section
+        all_value_bets.extend(game_value_bets)
     
-    # Add value bets section
+    # Add top value bets section if any
     if all_value_bets:
         report += (
-            "🔥 <b>TOP +EV BETTING OPPORTUNITIES</b> 🔥\n\n"
-            "Maximize your edge with these value plays:\n"
+            "🔥 <b>TOP VALUE BETS</b>\n\n" +
+            "\n".join(all_value_bets) + "\n\n"
         )
-        for bet in all_value_bets:
-            report += f"• {bet}\n"
-        report += "\n"
     else:
-        report += "⚠️ <b>No significant +EV opportunities found today</b>\n\n"
+        report += "⚠️ <b>No value bets found today</b>\n\n"
     
     # Add footer
     report += (
-        f"<i>Successfully analyzed {games_with_odds} of {len(games)} games</i>\n\n"
-        "⚠️ <i>Gamble responsibly • EV projections based on proprietary models</i>"
+        f"<i>Analyzed {games_with_odds}/{len(games)} games</i>\n"
+        "⚠️ <i>Gamble responsibly</i>"
     )
     
     # Send report
     logger.info(f"📝 Generated report for {len(games)} games")
     send_telegram_message(report)
     logger.info("✅ Report completed successfully")
+
+# ... [Keep the rest of your existing code unchanged] ...
 
 # ===== ENTRY POINT =====
 if __name__ == "__main__":
