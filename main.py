@@ -368,9 +368,11 @@ def format_odds(odds_game, home_team, away_team):
         logger.error(f"❌ Odds formatting error: {str(e)}")
         return "", "", "", []
 
-# ===== SEND TELEGRAM MESSAGE ==== #
+# ===== SEND TELEGRAM MESSAGE =====
 def send_telegram_message(message):
-    """Send message to Telegram, splitting at game boundaries if too long"""
+    """Send message to Telegram, splitting if too long"""
+    MAX_MSG_LEN = 4000  # Define it locally to fix the NameError
+    
     def send_single_message(chunk):
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -388,117 +390,172 @@ def send_telegram_message(message):
         except Exception as e:
             logger.error(f"❌ Telegram send error: {str(e)}")
     
-    # Define our game separator
-    GAME_SEPARATOR = "────────────────────────\n\n"
-    
     # Split message if it's too long
-    if len(message) <= MAX_MESSAGE_LENGTH:
+    if len(message) <= MAX_MSG_LEN:
         send_single_message(message)
         return
     
-    # Split the message into chunks at game boundaries
+    # Split the message into chunks
     logger.warning("⚠️ Message too long, splitting into chunks")
+    chunks = []
+    while message:
+        # Find a safe split point (preferably at game separator)
+        split_index = message.rfind("────────────────────────", 0, MAX_MSG_LEN)
+        if split_index == -1:
+            split_index = MAX_MSG_LEN
+        
+        chunk = message[:split_index]
+        chunks.append(chunk)
+        message = message[split_index:].lstrip()
     
-    # Extract the report header (everything before first game)
-    header_end = message.find(GAME_SEPARATOR)
-    if header_end == -1:
-        # If no game separator found, fallback to simple splitting
-        chunks = [message[i:i+MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
-        for i, chunk in enumerate(chunks):
-            send_single_message(f"📤 Part {i+1}/{len(chunks)}\n{chunk}")
+    # Send all chunks
+    for i, chunk in enumerate(chunks):
+        send_single_message(f"⚾ Part {i+1}/{len(chunks)}\n{chunk}")
+
+# ===== FORMAT ODDS WITH PROJECTIONS (SIMPLIFIED) =====
+def format_odds(odds_game, home_team, away_team):
+    """Format odds with EV projections - simplified version"""
+    value_bets = []
+    output = ""
+    
+    # Moneyline
+    ml_data = None
+    for bookmaker in odds_game.get('bookmakers', []):
+        if ml_data: break
+        ml_data = extract_odds(bookmaker, "h2h", ["home", "away"])
+    
+    if ml_data:
+        home_ml, away_ml = ml_data
+        home_prob = EV_MODEL.calculate_ev(home_ml, market="ml", is_home=True)
+        away_prob = EV_MODEL.calculate_ev(away_ml, market="ml", is_home=False)
+        
+        # Determine value bets
+        if home_prob > 0.52:  # +EV threshold
+            value_bets.append(f"✅ {home_team} ML: {home_ml} (EV: {home_prob:.2f})")
+        if away_prob > 0.52:
+            value_bets.append(f"✅ {away_team} ML: {away_ml} (EV: {away_prob:.2f})")
+            
+        output += f"💰 <b>Moneyline</b>\n🏠 {home_team}: {home_ml}\n✈️ {away_team}: {away_ml}\n\n"
+
+    # Run Line
+    rl_data = None
+    for bookmaker in odds_game.get('bookmakers', []):
+        if rl_data: break
+        rl_data = extract_odds(bookmaker, "spreads", ["home", "away"])
+    
+    if rl_data:
+        home_rl, away_rl = rl_data
+        home_prob = EV_MODEL.calculate_ev(home_rl, market="rl", is_home=True)
+        away_prob = EV_MODEL.calculate_ev(away_rl, market="rl", is_home=False)
+        
+        # Determine value bets
+        if home_prob > 0.52:
+            value_bets.append(f"✅ {home_team} RL: {home_rl} (EV: {home_prob:.2f})")
+        if away_prob > 0.52:
+            value_bets.append(f"✅ {away_team} RL: {away_rl} (EV: {away_prob:.2f})")
+            
+        output += f"📏 <b>Run Line</b>\n🏠 {home_team}: {home_rl}\n✈️ {away_team}: {away_rl}\n\n"
+
+    # Totals
+    totals_data = None
+    for bookmaker in odds_game.get('bookmakers', []):
+        if totals_data: break
+        totals_data = extract_odds(bookmaker, "totals", ["over", "under"])
+    
+    if totals_data:
+        over_odds, under_odds = totals_data
+        over_prob = EV_MODEL.calculate_ev(over_odds, market="total", is_over=True)
+        under_prob = EV_MODEL.calculate_ev(under_odds, market="total", is_over=False)
+        
+        # Determine value bets
+        if over_prob > 0.52:
+            value_bets.append(f"✅ Over: {over_odds} (EV: {over_prob:.2f})")
+        if under_prob > 0.52:
+            value_bets.append(f"✅ Under: {under_odds} (EV: {under_prob:.2f})")
+            
+        output += f"📊 <b>Totals</b>\n⬆️ Over: {over_odds}\n⬇️ Under: {under_odds}\n\n"
+    
+    # Add value bets footer
+    if value_bets:
+        output += "🔥 <b>Value Bets</b>\n" + "\n".join(value_bets) + "\n"
+    
+    output += "────────────────────────\n"
+    return output, value_bets
+
+# ===== MAIN FUNCTION (UPDATED HEADER) =====
+def main():
+    logger.info("🚀 Starting MLB betting report generator")
+    
+    # Get today's games
+    games = get_mlb_schedule()
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    local_time_str = datetime.now(pytz.timezone(TIMEZONE)).strftime("%I:%M %p %Z")
+    
+    if not games:
+        message = (
+            f"⚾ <b>MLB Report - {today_str}</b>\n\n"
+            f"No games scheduled today.\n\n"
+            f"<i>Generated {local_time_str}</i>"
+        )
+        send_telegram_message(message)
         return
     
-    report_header = message[:header_end]
-    game_sections = message[header_end:].split(GAME_SEPARATOR)
+    # Get odds data
+    odds_data = get_odds_data()
+    logger.info(f"📊 Retrieved odds for {len(odds_data)} games")
     
-    # Filter out empty sections
-    game_sections = [section.strip() for section in game_sections if section.strip()]
+    # Prepare simplified report header
+    report = (
+        f"⚾ <b>MLB Value Bets - {today_str}</b>\n\n"
+        f"🕒 <i>Generated {local_time_str}</i>\n"
+        f"🔢 {len(games)} games • {len(odds_data)} with odds\n\n"
+        "────────────────────────\n\n"
+    )
     
-    # Reassemble chunks ensuring each is < MAX_MESSAGE_LENGTH
-    chunks = []
-    current_chunk = ""
+    all_value_bets = []
+    games_with_odds = 0
     
-    for i, section in enumerate(game_sections):
-        # Add the game separator back (except for first section in chunk)
-        formatted_section = f"{GAME_SEPARATOR}{section}" if current_chunk else section
-        
-        # Check if adding this section would exceed limit
-        if len(current_chunk) + len(formatted_section) > MAX_MESSAGE_LENGTH - 300:  # 300 char buffer for header/footer
-            if current_chunk:
-                chunks.append(current_chunk)
-            current_chunk = formatted_section
-        else:
-            current_chunk += formatted_section
-    
-    # Add the last chunk
-    if current_chunk:
-        chunks.append(current_chunk)
-    
-    # Send all chunks with proper headers
-    total_chunks = len(chunks)
-    for i, chunk in enumerate(chunks):
-        # Create chunk-specific header
-        chunk_header = (
-            f"{report_header}\n\n"
-            f"📤 <b>Part {i+1} of {total_chunks}</b>\n"
-            f"🔢 Games {i*3+1}-{min((i+1)*3, len(game_sections))} of {len(game_sections)}\n\n"
+    # Process each game
+    for game in games:
+        # Match game with odds
+        odds_game = match_game_with_odds(game, odds_data)
+        if not odds_game:
+            continue
+            
+        games_with_odds += 1
+        game_header = (
+            f"<b>{game['away']} @ {game['home']}</b>\n"
+            f"⏰ {game['time']} • {game['status']}\n\n"
         )
         
-        # Combine header and chunk content
-        full_chunk = chunk_header + chunk
+        # Format odds with projections (simplified)
+        odds_section, value_bets = format_odds(
+            odds_game, game['home'], game['away']
+        )
         
-        # Add footer
-        full_chunk += f"\n\n────────────────────────\nPart {i+1}/{total_chunks}"
-        
-        # Send even if slightly over limit (Telegram allows 4096)
-        send_single_message(full_chunk)    
-    # Define our game separator
-    GAME_SEPARATOR = "────────────────────────\n\n"
+        # Add to report
+        report += game_header + odds_section
+        all_value_bets.extend(value_bets)
     
-    # Split message if it's too long
-    if len(message) <= MAX_MESSAGE_LENGTH:
-        send_single_message(message)
-        return
+    # Add top value bets section if any
+    if all_value_bets:
+        report += (
+            "🔥 <b>TOP VALUE BETS</b>\n\n" +
+            "\n".join(all_value_bets) + "\n\n"
+        )
+    else:
+        report += "⚠️ <b>No value bets found today</b>\n\n"
     
-    # Split the message into chunks at game boundaries
-    logger.warning("⚠️ Message too long, splitting into chunks")
-    chunks = []
-    parts = message.split(GAME_SEPARATOR)
+    # Add footer
+    report += (
+        f"<i>Analyzed {games_with_odds}/{len(games)} games</i>\n"
+        "⚠️ <i>Gamble responsibly</i>"
+    )
     
-    # Reassemble chunks ensuring each is < MAX_MESSAGE_LENGTH
-    current_chunk = ""
-    for i, part in enumerate(parts):
-        # Add separator back except for first part
-        if i > 0:
-            part_with_sep = GAME_SEPARATOR + part
-        else:
-            part_with_sep = part  # First part doesn't need leading separator
-        
-        # Check if adding this part would exceed limit
-        if len(current_chunk) + len(part_with_sep) > MAX_MESSAGE_LENGTH - 100:  # 100 char buffer
-            if current_chunk:  # Only add if not empty
-                chunks.append(current_chunk)
-            current_chunk = part_with_sep
-        else:
-            current_chunk += part_with_sep
-    
-    # Add the last chunk
-    if current_chunk:
-        chunks.append(current_chunk)
-    
-    # Send all chunks with numbering
-    total_chunks = len(chunks)
-    for i, chunk in enumerate(chunks):
-        header = f"⚾ <b>MLB Report Part {i+1}/{total_chunks}</b> ⚾\n\n"
-        footer = f"\n\n────────────────────────\nPart {i+1}/{total_chunks}"
-        
-        # Add header/footer only if there's room
-        if len(header) + len(chunk) + len(footer) <= MAX_MESSAGE_LENGTH:
-            formatted_chunk = header + chunk + footer
-        else:
-            formatted_chunk = chunk  # Send without extra formatting if too tight
-        
-        send_single_message(formatted_chunk)
+    # Send report
+    logger.info(f"📝 Generated report for {len(games)} games")
+    send_telegram_message(report)
+    logger.info("✅ Report completed successfully")
 
 # ... [Keep the rest of your existing code unchanged] ...
 # ===== MAIN FUNCTION =====
