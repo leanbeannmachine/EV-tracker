@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import pytz
 import telegram
 
-API_KEY = '7b5d540e73c8790a95b84d3713e1a572'
-TELEGRAM_TOKEN = '7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI'
-CHAT_ID = '964091254'
+THE_ODDS_API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
 
 # ✅ TEMP FIX — Use books with fewer restrictions to avoid 401s
 BOOKMAKERS = ["pinnacle", "betonlineag"]
