@@ -195,34 +195,36 @@ def main():
                         if odds is None:
                             continue
 
-                        win_prob = 0.5  # Placeholder
+                        win_prob = 0.5  # placeholder probability
                         ev = calculate_ev(odds, win_prob)
                         if ev > best_ev:
                             best_ev = ev
                             best_outcome = outcome
-                            
-if best_outcome and 3.0 <= best_ev <= 15.0:
-    message = format_message(
-        game,
-        market_key,
-        best_outcome,
-        best_outcome['price'],
-        best_ev,
-        game['commence_time']
-    )
-    send_telegram_message(message)
-    sent_any = True
-    save_result_log({
-        "sport": sport,
-        "market": market_key,
-        "pick": best_outcome.get("name", ""),
-        "home": game.get("home_team"),
-        "away": game.get("away_team"),
-        "line": best_outcome.get("point", 0),
-        "type": "over" if "over" in best_outcome.get("name", "").lower() else "under" if "under" in best_outcome.get("name", "").lower() else None,
-        "game_time": game['commence_time'],
-        "resolved": False
-    })
+
+                    if best_outcome and 3.0 <= best_ev <= 15.0:
+                        message = format_message(
+                            game,
+                            market_key,
+                            best_outcome,
+                            best_outcome['price'],
+                            best_ev,
+                            game['commence_time']
+                        )
+                        send_telegram_message(message)
+                        sent_any = True
+                        save_result_log({
+                            "sport": sport,
+                            "market": market_key,
+                            "pick": best_outcome.get("name", ""),
+                            "home": game.get("home_team"),
+                            "away": game.get("away_team"),
+                            "line": best_outcome.get("point", 0),
+                            "type": "over" if "over" in best_outcome.get("name", "").lower()
+                                    else "under" if "under" in best_outcome.get("name", "").lower()
+                                    else None,
+                            "game_time": game['commence_time'],
+                            "resolved": False
+                        })
 
     if not sent_any:
         print("✅ Script ran but no value bets were found.")
@@ -230,6 +232,7 @@ if best_outcome and 3.0 <= best_ev <= 15.0:
         print("✅ Bets sent successfully.")
 
     check_and_update_results()
+
 
 if __name__ == "__main__":
     main()
