@@ -369,23 +369,77 @@ def format_odds(odds_game, home_team, away_team):
         return "", "", "", []
 
 # ===== SEND TELEGRAM MESSAGE =====
-def send_telegram_message(message):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            logger.info("✅ Telegram message sent")
-        else:
-            logger.error(f"⚠️ Telegram error {response.status_code}: {response.text}")
-    except Exception as e:
-        logger.error(f"❌ Telegram send error: {str(e)}")
+# ... [Keep all your existing code above the send_telegram_message function] ...
 
+# ===== SEND TELEGRAM MESSAGE =====
+def send_telegram_message(message):
+    """Send message to Telegram, splitting at game boundaries if too long"""
+    def send_single_message(chunk):
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": chunk,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True
+            }
+            response = requests.post(url, json=payload, timeout=15)
+            if response.status_code == 200:
+                logger.info("✅ Telegram message sent")
+            else:
+                logger.error(f"⚠️ Telegram error {response.status_code}: {response.text}")
+        except Exception as e:
+            logger.error(f"❌ Telegram send error: {str(e)}")
+    
+    # Define our game separator
+    GAME_SEPARATOR = "────────────────────────\n\n"
+    
+    # Split message if it's too long
+    if len(message) <= MAX_MESSAGE_LENGTH:
+        send_single_message(message)
+        return
+    
+    # Split the message into chunks at game boundaries
+    logger.warning("⚠️ Message too long, splitting into chunks")
+    chunks = []
+    parts = message.split(GAME_SEPARATOR)
+    
+    # Reassemble chunks ensuring each is < MAX_MESSAGE_LENGTH
+    current_chunk = ""
+    for i, part in enumerate(parts):
+        # Add separator back except for first part
+        if i > 0:
+            part_with_sep = GAME_SEPARATOR + part
+        else:
+            part_with_sep = part  # First part doesn't need leading separator
+        
+        # Check if adding this part would exceed limit
+        if len(current_chunk) + len(part_with_sep) > MAX_MESSAGE_LENGTH - 100:  # 100 char buffer
+            if current_chunk:  # Only add if not empty
+                chunks.append(current_chunk)
+            current_chunk = part_with_sep
+        else:
+            current_chunk += part_with_sep
+    
+    # Add the last chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    # Send all chunks with numbering
+    total_chunks = len(chunks)
+    for i, chunk in enumerate(chunks):
+        header = f"⚾ <b>MLB Report Part {i+1}/{total_chunks}</b> ⚾\n\n"
+        footer = f"\n\n────────────────────────\nPart {i+1}/{total_chunks}"
+        
+        # Add header/footer only if there's room
+        if len(header) + len(chunk) + len(footer) <= MAX_MESSAGE_LENGTH:
+            formatted_chunk = header + chunk + footer
+        else:
+            formatted_chunk = chunk  # Send without extra formatting if too tight
+        
+        send_single_message(formatted_chunk)
+
+# ... [Keep the rest of your existing code unchanged] ...
 # ===== MAIN FUNCTION =====
 def main():
     logger.info("🚀 Starting MLB betting report generator")
