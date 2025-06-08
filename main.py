@@ -51,8 +51,7 @@ def format_ev_label(ev):
     else:
         return "🔴 *NO EDGE*"
 
-def generate_reasoning(market, pick, game):
-    # Customize reasoning based on market type and pick
+def generate_reasoning(market, pick, game, line=None):
     home = game.get('home_team')
     away = game.get('away_team')
 
@@ -74,16 +73,28 @@ def generate_reasoning(market, pick, game):
 
 def format_message(game, market, outcome, odds, ev, start_time):
     team = outcome.get('name')
+    line = outcome.get('point')  # spread/run line or total line number
     label = format_ev_label(ev)
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
     odds_str = f"{odds:+}" if isinstance(odds, int) else str(odds)
     market_display = market.upper()
 
-    reasoning = generate_reasoning(market, team, game)
+    # Build pick string with line for spreads and totals
+    if market in ["spreads", "totals"] and line is not None:
+        # For totals, line is usually float like 2.5, and pick is "Over" or "Under"
+        if market == "totals":
+            pick_str = f"{team} {line}"
+        else:
+            # For spreads, line is run/goal/point spread, combine with pick (team)
+            pick_str = f"{team} {line:+}"  # adds + or - sign
+    else:
+        pick_str = team
+
+    reasoning = generate_reasoning(market, team, game, line)
 
     message = (
         f"📊 *{market_display}*\n"
-        f"*Pick:* {team}\n"
+        f"*Pick:* {pick_str}\n"
         f"*Odds:* {odds_str}\n"
         f"*Expected Value:* {ev:.1f}%\n"
         f"{label}\n"
