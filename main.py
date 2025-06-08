@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import telegram
 import random
@@ -7,46 +7,18 @@ import random
 API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
+
 BOOKMAKERS = ["pinnacle", "betonlineag"]
 SPORTS = ["baseball_mlb", "basketball_wnba"]
 
-def generate_reasoning(market_key, team_name):
-    team = team_name.split()[-1] if team_name else "this team"
-    if market_key == "spreads":
-        reasons = [
-            f"{team} has consistently covered recent spreads due to strong defense.",
-            f"{team}'s margin of victory trends well against this line.",
-            f"{team} matches up well and tends to outperform expectations.",
-            f"Based on recent form, {team} has value on this spread.",
-        ]
-    elif market_key == "totals":
-        if "Over" in team_name:
-            reasons = [
-                "Both teams play at a fast pace, suggesting a high-scoring affair.",
-                "Recent matchups show consistent totals going over this line.",
-                "Offensive efficiency is expected to push the game over.",
-                "Scoring trends favor the over in this matchup.",
-            ]
-        else:
-            reasons = [
-                "Defensive intensity and slower tempo point to a low-scoring game.",
-                "Recent totals between these teams tend to fall short of this line.",
-                "Offensive struggles make the under appealing here.",
-                "Pace and recent form favor the under hitting.",
-            ]
-    elif market_key == "h2h":
-        reasons = [
-            f"{team} has the edge based on recent form and matchups.",
-            f"Momentum and team stats favor {team} to win outright.",
-            f"{team} has outperformed opponents in similar spots.",
-            f"Confidence in {team} stems from both recent wins and depth.",
-        ]
-    else:
-        reasons = [
-            f"{team} is in a strong position based on matchup metrics.",
-            "Value play based on line movement and implied probabilities.",
-        ]
-    return random.choice(reasons)
+def generate_reasoning(market, team):
+    if market == "h2h":
+        return f"The {team} come in with serious momentum 🚀 and the metrics are tilting in their favor 📊. With this kind of line, there's huge upside on a team that’s been outperforming expectations!"
+    elif market == "spreads":
+        return f"{team} has been covering spreads consistently 🧱 due to tough defense and reliable scoring. The matchup looks promising again today."
+    elif market == "totals":
+        return f"Based on tempo and efficiency 📈, this total line holds strong value. Trends and matchup data support the bet."
+    return "Backed by data and matchup trends, this is a value-driven play."
 
 def fetch_odds_for_sport(sport_key):
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
@@ -75,19 +47,28 @@ def calculate_ev(american_odds, win_prob):
 
 def format_ev_label(ev):
     if ev > 7:
-        return "🟢 BEST VALUE"
+        return "🟢 *BEST VALUE*"
     elif ev > 3:
-        return "🟡 GOOD VALUE"
+        return "🟡 *GOOD VALUE*"
     elif ev > 0:
-        return "🟠 SLIGHT EDGE"
+        return "🟠 *SLIGHT EDGE*"
     else:
-        return "🔴 NO EDGE"
+        return "🔴 *NO EDGE*"
+
+def is_today_game(game_time_str):
+    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
+    now = datetime.now(pytz.timezone('US/Eastern'))
+    return game_time.date() == now.date()
+
+def filter_today_games(games):
+    return [g for g in games if is_today_game(g['commence_time'])]
 
 def format_message(game, market, outcome, odds, ev, start_time):
     market_key = market.lower()
     team = outcome.get('name', '')
     line_info = ""
 
+    # Add line info
     if market_key == "spreads" and 'point' in outcome:
         line_info = f" {outcome['point']:+.1f}"
     elif market_key == "totals" and 'point' in outcome:
@@ -99,19 +80,19 @@ def format_message(game, market, outcome, odds, ev, start_time):
         team = f"{away} vs {home}"
 
     team_line = f"{team}{line_info}"
-    label = format_ev_label(ev)
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
+    label = format_ev_label(ev)
     reasoning = generate_reasoning(market, team)
 
     return (
-        f"📊 *{market.upper()}*\n"
-        f"*Pick:* {team_line}\n"
-        f"*Odds:* {odds_str}\n"
-        f"*Expected Value:* {ev:.1f}%\n"
-        f"{label}\n"
+        f"📊 *{market.upper()} BET*\n\n"
+        f"🔥 *Pick:* **{team_line}**\n"
+        f"💵 *Odds:* {odds_str}\n"
+        f"📈 *Expected Value:* **+{ev:.1f}%**\n"
+        f"{label}\n\n"
         f"🕒 *Game Time:* {readable_time}\n"
-        f"💡 *Reasoning:* {reasoning}\n"
+        f"💡 *Why We Like It:*\n{reasoning}\n"
         f"——————"
     )
 
@@ -121,14 +102,6 @@ def send_telegram_message(message):
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
     except telegram.error.TelegramError as e:
         print(f"Telegram error: {e}")
-
-def is_today_game(game_time_str):
-    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
-    now = datetime.now(pytz.timezone('US/Eastern'))
-    return game_time.date() == now.date()
-
-def filter_today_games(games):
-    return [game for game in games if is_today_game(game.get("commence_time", ""))]
 
 def main():
     sent_any = False
@@ -148,9 +121,9 @@ def main():
                         if odds is None:
                             continue
 
-                        win_prob = 0.5  # Replace with real win probability if you have a model
+                        # Placeholder win probability model
+                        win_prob = 0.5
                         ev = calculate_ev(odds, win_prob)
-
                         if ev > best_ev:
                             best_ev = ev
                             best_outcome = outcome
