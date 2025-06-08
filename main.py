@@ -62,7 +62,23 @@ def generate_reasoning(market, team):
     return "No specific reasoning available."
 
 def format_message(game, market, outcome, odds, ev, start_time):
-    team = outcome.get('name')
+    market_key = market.lower()
+team = outcome.get('name', '')
+line_info = ""
+
+# Add line for spreads and totals
+if market_key == "spreads" and 'point' in outcome:
+    line_info = f" {outcome['point']:+.1f}"
+elif market_key == "totals" and 'point' in outcome:
+    line_info = f" {outcome['point']:.1f}"
+
+# If outcome name is missing (like totals), build team label
+if not team:
+    home = game.get("home_team", "")
+    away = game.get("away_team", "")
+    team = f"{away} vs {home}"
+
+team_line = f"{team}{line_info}"
     label = format_ev_label(ev)
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
