@@ -55,7 +55,6 @@ SPORTS = [
     "baseball_mlb",
     "basketball_wnba",
     "soccer_usa_mls",
-    "soccer_usa_nwsl"
 ]
 
 def fetch_odds_for_sport(sport_key):
