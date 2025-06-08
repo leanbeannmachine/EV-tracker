@@ -151,28 +151,34 @@ def is_today_game(game_time_str):
 def main():
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
-    for game in games:
+    for game in filtered_games:
         for bookmaker in game.get('bookmakers', []):
-            for market in bookmaker.get('markets', []):
-            market_key = market['key']
-            best_outcome = None
-            best_ev = -999
+    for market in bookmaker.get('markets', []):
+        market_key = market['key']
+        best_outcome = None
+        best_ev = -999
 
-            for outcome in market.get('outcomes', []):
-                odds = outcome.get('price')
-                if odds is None:
-                    continue
+        for outcome in market.get('outcomes', []):
+            odds = outcome.get('price')
+            if odds is None:
+                continue
 
-                ev = calculate_ev(odds, game)  # Use your own EV function
-                if ev > best_ev:
-                    best_ev = ev
-                    best_outcome = outcome
+            # Calculate EV using your model
+            ev = calculate_ev(odds, game)
+            if ev > best_ev:
+                best_ev = ev
+                best_outcome = outcome
 
-            if best_outcome and best_ev >= 3.0:  # Set your EV threshold
-                message = format_message(
-                    game, market_key, best_outcome,
-                    best_outcome['price'], best_ev, game['commence_time']
-                )
-                send_telegram_alert(message)
+        # Only send one message per market per game if EV is decent
+        if best_outcome and best_ev >= 3.0:
+            message = format_message(
+                game,
+                market_key,
+                best_outcome,
+                best_outcome['price'],
+                best_ev,
+                game['commence_time']
+            )
+            send_telegram_alert(message)
 if __name__ == "__main__":
     main()
