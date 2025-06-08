@@ -183,3 +183,7 @@ def main():
                             game['commence_time']
                         )
                         send_telegram_message(message)
+if not sent_any:
+        print("✅ Script ran but no value bets were found.")
+    else:
+        print("✅ Bets sent successfully.")
