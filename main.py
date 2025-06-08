@@ -200,16 +200,19 @@ def main():
                         if ev > best_ev:
                             best_ev = ev
                             best_outcome = outcome
-
-                    if best_outcome and best_ev >= 3.0:
-                        message = format_message(
-                            game,
-                            market_key,
-                            best_outcome,
-                            best_outcome['price'],
-                            best_ev,
-                            game['commence_time']
-                        )
+                            
+if best_outcome and 3.0 <= best_ev <= 15.0:
+    message = format_message(
+        game,
+        market_key,
+        best_outcome,
+        best_outcome['price'],
+        best_ev,
+        game['commence_time']
+    )
+    send_telegram_message(message)
+    sent_any = True
+     
                         send_telegram_message(message)
                         sent_any = True
 
