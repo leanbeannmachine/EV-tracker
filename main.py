@@ -212,17 +212,17 @@ if best_outcome and 3.0 <= best_ev <= 15.0:
     )
     send_telegram_message(message)
     sent_any = True
-                        save_result_log({
-                            "sport": sport,
-                            "market": market_key,
-                            "pick": best_outcome.get("name", ""),
-                            "home": game.get("home_team"),
-                            "away": game.get("away_team"),
-                            "line": best_outcome.get("point", 0),
-                            "type": "over" if "over" in best_outcome.get("name", "").lower() else "under" if "under" in best_outcome.get("name", "").lower() else None,
-                            "game_time": game['commence_time'],
-                            "resolved": False
-                        })
+    save_result_log({
+        "sport": sport,
+        "market": market_key,
+        "pick": best_outcome.get("name", ""),
+        "home": game.get("home_team"),
+        "away": game.get("away_team"),
+        "line": best_outcome.get("point", 0),
+        "type": "over" if "over" in best_outcome.get("name", "").lower() else "under" if "under" in best_outcome.get("name", "").lower() else None,
+        "game_time": game['commence_time'],
+        "resolved": False
+    })
 
     if not sent_any:
         print("✅ Script ran but no value bets were found.")
