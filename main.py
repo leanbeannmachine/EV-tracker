@@ -54,7 +54,6 @@ BOOKMAKERS = ["pinnacle", "betonlineag"]
 SPORTS = [
     "baseball_mlb",
     "basketball_wnba",
-    "soccer_usa_mls",
 ]
 
 def fetch_odds_for_sport(sport_key):
@@ -160,17 +159,21 @@ def main():
             for bookmaker in game.get('bookmakers', []):
                 for market in bookmaker.get('markets', []):
                     market_type = market.get('key')
-                    for outcome in market.get('outcomes', []):
-                        odds = outcome.get('price')
-                        if odds is None:
-                            continue
+                    best_outcome = None
+best_ev = -999  # or some very low number
 
-                        implied_prob = 0.55 if odds < 0 else 0.48
-                        ev = calculate_ev(odds, implied_prob)
+for outcome in market.get('outcomes', []):
+    odds = outcome.get('price')
+    if odds is None:
+        continue
+    ev = calculate_ev(odds, game)  # Use your existing EV calculation function
+    if ev > best_ev:
+        best_ev = ev
+        best_outcome = outcome
 
-                        if ev > 3:
-                            msg = format_message(game, market_type, outcome, odds, ev, commence_time)
-                            send_telegram_message(msg)
+if best_outcome and best_ev >= YOUR_MIN_EV_THRESHOLD:  # e.g., 3.0% or whatever you want
+    message = format_message(game, market_key, best_outcome, best_outcome['price'], best_ev, game['commence_time'])
+    send_telegram_alert(message)
 
 if __name__ == "__main__":
     main()
