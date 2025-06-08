@@ -2,12 +2,16 @@ import requests
 from datetime import datetime, timedelta
 import pytz
 import telegram
-
 import random
+
+API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
+BOOKMAKERS = ["pinnacle", "betonlineag"]
+SPORTS = ["baseball_mlb", "basketball_wnba"]
 
 def generate_reasoning(market_key, team_name):
     team = team_name.split()[-1] if team_name else "this team"
-
     if market_key == "spreads":
         reasons = [
             f"{team} has consistently covered recent spreads due to strong defense.",
@@ -42,19 +46,7 @@ def generate_reasoning(market_key, team_name):
             f"{team} is in a strong position based on matchup metrics.",
             "Value play based on line movement and implied probabilities.",
         ]
-
     return random.choice(reasons)
-
-API_KEY = "b478dbe3f62f1f249a7c319cb2248bc5"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
-
-BOOKMAKERS = ["pinnacle", "betonlineag"]
-
-SPORTS = [
-    "baseball_mlb",
-    "basketball_wnba",
-]
 
 def fetch_odds_for_sport(sport_key):
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
@@ -65,7 +57,6 @@ def fetch_odds_for_sport(sport_key):
         "oddsFormat": "american",
         "bookmakers": ",".join(BOOKMAKERS)
     }
-
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
@@ -92,28 +83,16 @@ def format_ev_label(ev):
     else:
         return "🔴 NO EDGE"
 
-def generate_reasoning(market, team):
-    if market == "h2h":
-        return f"{team} has a favorable head-to-head matchup based on recent results."
-    elif market == "spreads":
-        return f"{team} tends to cover the spread due to consistent scoring or defensive strength."
-    elif market == "totals":
-        return "Expected game tempo and efficiency favor this total line."
-    return "No specific reasoning available."
-
-
 def format_message(game, market, outcome, odds, ev, start_time):
     market_key = market.lower()
     team = outcome.get('name', '')
     line_info = ""
 
-    # Add line for spreads and totals
     if market_key == "spreads" and 'point' in outcome:
         line_info = f" {outcome['point']:+.1f}"
     elif market_key == "totals" and 'point' in outcome:
         line_info = f" {outcome['point']:.1f}"
 
-    # If outcome name is missing (like totals), build team label
     if not team:
         home = game.get("home_team", "")
         away = game.get("away_team", "")
@@ -135,7 +114,7 @@ def format_message(game, market, outcome, odds, ev, start_time):
         f"💡 *Reasoning:* {reasoning}\n"
         f"——————"
     )
-    
+
 def send_telegram_message(message):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     try:
@@ -148,7 +127,11 @@ def is_today_game(game_time_str):
     now = datetime.now(pytz.timezone('US/Eastern'))
     return game_time.date() == now.date()
 
+def filter_today_games(games):
+    return [game for game in games if is_today_game(game.get("commence_time", ""))]
+
 def main():
+    sent_any = False
     for sport in SPORTS:
         games = fetch_odds_for_sport(sport)
         filtered_games = filter_today_games(games)
@@ -165,10 +148,9 @@ def main():
                         if odds is None:
                             continue
 
-                        # Replace with your actual win probability model
-                        win_prob = 0.5  
-
+                        win_prob = 0.5  # Replace with real win probability if you have a model
                         ev = calculate_ev(odds, win_prob)
+
                         if ev > best_ev:
                             best_ev = ev
                             best_outcome = outcome
@@ -183,7 +165,12 @@ def main():
                             game['commence_time']
                         )
                         send_telegram_message(message)
-if not sent_any:
+                        sent_any = True
+
+    if not sent_any:
         print("✅ Script ran but no value bets were found.")
     else:
         print("✅ Bets sent successfully.")
+
+if __name__ == "__main__":
+    main()
