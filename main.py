@@ -12,7 +12,15 @@ CHAT_ID = "964091254"
 BOOKMAKERS_ALLOWED = ["draftkings", "fanduel"]
 TIMEZONE = pytz.timezone("US/Eastern")
 
-# --- Functions ---
+# We'll only pull these stable sports to avoid API errors:
+sports = {
+    "baseball_mlb": "MLB",
+    "basketball_wnba": "WNBA",
+    # "soccer_epl": "Soccer EPL",  # Commented out due to instability
+    # "tennis_atp": "ATP Tennis", # Commented out due to instability
+}
+
+ALLOWED_MARKETS = ["h2h", "spreads", "totals"]  # limit markets for stability
 
 def get_date_strings():
     now = datetime.now(TIMEZONE)
@@ -23,13 +31,17 @@ def get_date_strings():
 def fetch_odds(sport_key, date):
     url = (
         f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-        f"?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals,playerProps"
+        f"?apiKey={API_KEY}&regions=us&markets={','.join(ALLOWED_MARKETS)}"
         f"&oddsFormat=american&dateFormat=iso&date={date}"
     )
     try:
-        resp = requests.get(url)
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, list):
+            print(f"Warning: Unexpected data format for {sport_key} on {date}")
+            return []
+        return data
     except Exception as e:
         print(f"Error fetching odds for {sport_key} on {date}: {e}")
         return []
@@ -46,16 +58,12 @@ def calculate_ev(odds, probability):
     return round(ev, 3)
 
 def dummy_probability(market_key, outcome_name, sport_key):
-    # Placeholder, adjust as needed for your real model
+    # Simplified placeholder probabilities
     base_prob = 0.5
     if sport_key == "baseball_mlb":
         base_prob = 0.55
     elif sport_key == "basketball_wnba":
         base_prob = 0.53
-    elif sport_key == "soccer_epl":
-        base_prob = 0.52
-    elif sport_key == "tennis_atp":
-        base_prob = 0.54
 
     if market_key == "h2h":
         return base_prob
@@ -63,22 +71,22 @@ def dummy_probability(market_key, outcome_name, sport_key):
         return base_prob - 0.02
     elif market_key == "totals":
         return base_prob - 0.03
-    elif market_key == "playerProps":
-        return base_prob
     else:
         return 0.5
 
 def format_message(game, sport_name, bet_type, outcome_name, odds, ev, commence_time, label):
-    home = game["home_team"]
-    away = game["away_team"]
+    home = game.get("home_team", "N/A")
+    away = game.get("away_team", "N/A")
     league = sport_name
-    local_time = datetime.fromisoformat(commence_time).astimezone(TIMEZONE).strftime("%I:%M %p %Z")
+    try:
+        local_time = datetime.fromisoformat(commence_time).astimezone(TIMEZONE).strftime("%I:%M %p %Z")
+    except Exception:
+        local_time = "N/A"
 
     emojis = {
         "h2h": "🎯 Moneyline",
         "spreads": "📊 Spread",
         "totals": "⚖️ Totals",
-        "playerProps": "⭐ Player Prop"
     }
     bet_emoji = emojis.get(bet_type, "🎲 Bet")
 
@@ -106,17 +114,8 @@ def send_telegram(text):
     except Exception as e:
         print(f"Telegram send failed: {e}")
 
-# --- Main ---
-
 def main():
     today, tomorrow = get_date_strings()
-
-    sports = {
-        "baseball_mlb": "MLB",
-        "basketball_wnba": "WNBA",
-        "soccer_epl": "Soccer EPL",
-        "tennis_atp": "ATP Tennis"
-    }
 
     for date in [today, tomorrow]:
         print(f"Fetching bets for {date}")
@@ -131,20 +130,21 @@ def main():
                     if bookmaker["key"] not in BOOKMAKERS_ALLOWED:
                         continue
                     for market in bookmaker.get("markets", []):
+                        if market["key"] not in ALLOWED_MARKETS:
+                            continue
                         for outcome in market.get("outcomes", []):
                             odds = outcome.get("price")
                             if odds is None:
                                 continue
                             prob = dummy_probability(market["key"], outcome["name"], sport_key)
                             ev = calculate_ev(odds, prob)
-
-                            if ev > 0.03:  # Only send positive EV bets above 3%
+                            if ev > 0.03:  # Only positive EV bets above 3%
                                 label = "🟢" if ev > 0.07 else "🟡"
                                 msg = format_message(
-                                    game, sport_name, market["key"], outcome["name"], odds, ev, game["commence_time"], label
+                                    game, sport_name, market["key"], outcome["name"], odds, ev, game.get("commence_time", ""), label
                                 )
                                 send_telegram(msg)
-                                time.sleep(1)  # delay to avoid spamming
+                                time.sleep(1)  # polite delay to avoid spamming
 
 if __name__ == "__main__":
     main()
