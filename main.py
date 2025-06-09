@@ -188,7 +188,7 @@ header_message = (
     f"📏 Spread: {' | '.join(spread_lines) if spread_lines else 'N/A'}\n"
     f"📊 Total: {' | '.join(total_lines) if total_lines else 'N/A'}\n\n"
 )
-        
+    
         # Add best bet details per market
         for market_key in ["h2h", "spreads", "totals"]:
             best = best_bets.get(market_key)
