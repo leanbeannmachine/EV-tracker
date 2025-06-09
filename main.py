@@ -7,7 +7,7 @@ import time
 # --- YOUR SETTINGS ---
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
-ODDS_API_KEY = "7b5d540e73c8790a95b84d3713e1a572"
+ODDS_API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
 SPORTMONKS_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0G-BLTAplBKVHt8YL6m0jNZpmUbCu4szH"
 ODDSAPI_SPORTS = ["baseball_mlb", "basketball_wnba", "soccer_usa_mls", "soccer_usa_nwsl"]
 
