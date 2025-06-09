@@ -60,98 +60,58 @@ def calc_ev(win_prob, odds):
     return (win_prob - imp_prob) * 100  # as percentage difference
 
 def calculate_best_bets(game):
-    """
-    For each market (ML, spread, total), find best bet with highest positive EV
-    Return dict with best bets and their stats
-    """
     best_bets = {}
 
-    # We expect markets: 'h2h', 'spreads', 'totals' in game['bookmakers'][0]['markets']
-    # To keep it simple, check the first bookmaker only (usually best available odds)
     try:
-        bookmaker = game['bookmakers'][0]
-        markets = {m['key']: m for m in bookmaker['markets']}
+        markets = game.get('bookmakers', [{}])[0].get('markets', {})
+
+        # ----- Moneyline (ML) -----
+        if 'h2h' in markets and 'outcomes' in markets['h2h']:
+            ml_outcomes = markets['h2h']['outcomes']
+            best_ml = max(ml_outcomes, key=lambda x: x.get('win_prob', 0) - x.get('implied_prob', 0))
+            ml_diff = best_ml.get('win_prob', 0) - best_ml.get('implied_prob', 0)
+            if ml_diff >= 0.05:  # 5% EV threshold
+                best_bets['ml'] = {
+                    'team': best_ml['name'],
+                    'price': best_ml['price'],
+                    'win_prob': best_ml.get('win_prob'),
+                    'implied_prob': best_ml.get('implied_prob'),
+                    'diff': ml_diff
+                }
+
+        # ----- Spread -----
+        if 'spreads' in markets and 'outcomes' in markets['spreads']:
+            spread_outcomes = markets['spreads']['outcomes']
+            best_spread = max(spread_outcomes, key=lambda x: x.get('win_prob', 0) - x.get('implied_prob', 0))
+            spread_diff = best_spread.get('win_prob', 0) - best_spread.get('implied_prob', 0)
+            if spread_diff >= 0.02:  # 2% EV threshold
+                best_bets['spread'] = {
+                    'team': best_spread['name'],
+                    'price': best_spread['price'],
+                    'point': best_spread.get('point', 'N/A'),
+                    'win_prob': best_spread.get('win_prob'),
+                    'implied_prob': best_spread.get('implied_prob'),
+                    'diff': spread_diff
+                }
+
+        # ----- Total (Over/Under) -----
+        if 'totals' in markets and 'outcomes' in markets['totals']:
+            total_outcomes = markets['totals']['outcomes']
+            best_total = max(total_outcomes, key=lambda x: x.get('win_prob', 0) - x.get('implied_prob', 0))
+            total_diff = best_total.get('win_prob', 0) - best_total.get('implied_prob', 0)
+            if total_diff >= 0.02:  # 2% EV threshold
+                best_bets['total'] = {
+                    'side': best_total['name'],
+                    'price': best_total['price'],
+                    'point': best_total.get('point', 'N/A'),
+                    'win_prob': best_total.get('win_prob'),
+                    'implied_prob': best_total.get('implied_prob'),
+                    'diff': total_diff
+                }
+
     except Exception as e:
-        print(f"🚨 Error accessing bookmakers or markets: {e}", file=sys.stderr)
-        return None
+        print(f"⚠️ Error calculating best bets: {e}")
 
-    # Dummy win probabilities - In a real bot you'd have a model or external data here.
-    # For demo, we'll estimate win prob as 1 - implied probability of opposing side (simplified)
-    # For ML:
-    if 'h2h' in markets:
-        h2h = markets['h2h']['outcomes']
-        best_ev = -math.inf
-        best_outcome = None
-        for outcome in h2h:
-            odds = outcome['price']
-            imp_prob = implied_probability(odds)
-            # Naively assume your win probability is max of both sides' implied probabilities * 1.1 (small edge)
-            # Here just for demo: win_prob = (1 - imp_prob) + 0.1 but capped at 0.9 max
-            win_prob = min(imp_prob + 0.1, 0.9)
-            ev = calc_ev(win_prob, odds)
-            if ev > 0 and ev > best_ev:
-                best_ev = ev
-                best_outcome = {
-                    'type': 'Moneyline',
-                    'team': outcome['name'],
-                    'odds': odds,
-                    'win_prob': round(win_prob * 100, 1),
-                    'implied_prob': round(imp_prob * 100, 2),
-                    'ev_diff': round(ev, 2),
-                }
-        if best_outcome:
-            best_bets['ml'] = best_outcome
-
-    # For Spreads:
-    if 'spreads' in markets:
-        spreads = markets['spreads']['outcomes']
-        best_ev = -math.inf
-        best_outcome = None
-        for outcome in spreads:
-            odds = outcome['price']
-            imp_prob = implied_probability(odds)
-            win_prob = min(imp_prob + 0.1, 0.9)  # dummy logic
-            ev = calc_ev(win_prob, odds)
-            if ev > 0 and ev > best_ev:
-                best_ev = ev
-                best_outcome = {
-                    'type': 'Spread',
-                    'team': outcome['name'],
-                    'point': markets['spreads']['points'],
-                    'odds': odds,
-                    'win_prob': round(win_prob * 100, 1),
-                    'implied_prob': round(imp_prob * 100, 2),
-                    'ev_diff': round(ev, 2),
-                }
-        if best_outcome:
-            best_bets['spread'] = best_outcome
-
-    # For Totals:
-    if 'totals' in markets:
-        totals = markets['totals']['outcomes']
-        best_ev = -math.inf
-        best_outcome = None
-        for outcome in totals:
-            odds = outcome['price']
-            imp_prob = implied_probability(odds)
-            win_prob = min(imp_prob + 0.1, 0.9)  # dummy logic
-            ev = calc_ev(win_prob, odds)
-            if ev > 0 and ev > best_ev:
-                best_ev = ev
-                best_outcome = {
-                    'type': 'Total',
-                    'side': outcome['name'],  # Over or Under
-                    'point': markets['totals']['points'],
-                    'odds': odds,
-                    'win_prob': round(win_prob * 100, 1),
-                    'implied_prob': round(imp_prob * 100, 2),
-                    'ev_diff': round(ev, 2),
-                }
-        if best_outcome:
-            best_bets['total'] = best_outcome
-
-    if len(best_bets) == 0:
-        return None
     return best_bets
 
 def format_bet_message(game, best_bets):
