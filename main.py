@@ -22,6 +22,22 @@ def format_odds(value):
 def implied_prob(odds):
     return 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
 
+def format_bet_message(game, best_bets):
+    message = f"🟢 *{game['home']} vs {game['away']}*\n"
+    message += f"📅 {game['date']} {game['time']}\n"
+    message += f"🏆 *ML:* {game['away']}: {game['odds']['moneyline'][game['away']]} | {game['home']}: {game['odds']['moneyline'][game['home']]}\n"
+    message += f"📏 *Spread:* {game['away']} {game['odds']['spread'][game['away']]['point']} @ {game['odds']['spread'][game['away']]['price']} | {game['home']} {game['odds']['spread'][game['home']]['point']} @ {game['odds']['spread'][game['home']]['price']}\n"
+    message += f"📊 *Total:* Over {game['odds']['totals']['point']} @ {game['odds']['totals']['over']} | Under {game['odds']['totals']['point']} @ {game['odds']['totals']['under']}\n"
+
+    for bet_type, bet_info in best_bets.items():
+        if bet_type == "moneyline":
+            message += f"💰 *Best ML Bet:* {bet_info['team']} @ {bet_info['odds']} (🎯 Win {bet_info['win_prob']}% vs 📉 Imp. {bet_info['imp_prob']}% | 🔥 Diff {bet_info['diff']}%)\n"
+        elif bet_type == "spread":
+            message += f"📐 *Best Spread:* {bet_info['team']} {bet_info['point']} @ {bet_info['odds']} (🎯 Win {bet_info['win_prob']}% vs 📉 Imp. {bet_info['imp_prob']}% | 🔥 Diff {bet_info['diff']}%)\n"
+        elif bet_type == "total":
+            message += f"📈 *Best Total:* {bet_info['type']} {bet_info['point']} @ {bet_info['odds']} (🎯 Win {bet_info['win_prob']}% vs 📉 Imp. {bet_info['imp_prob']}% | 🔥 Diff {bet_info['diff']}%)\n"
+    return message
+
 def send_telegram_message(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}
@@ -30,137 +46,124 @@ def send_telegram_message(msg):
     except Exception as e:
         print("Telegram error:", e)
 
-def build_bet_message(header, time_str, moneylines, spreads, totals, best_bet_line):
+def build_bet_message(header, time_str, moneylines, spreads, totals, best_bet_line, best_spread_line=None, best_total_line=None):
     message = f"🟢 *{header}*\n📅 {time_str}\n"
-    if moneylines: message += f"🏆 ML: {moneylines}\n"
-    if spreads: message += f"📏 Spread: {spreads}\n"
-    if totals: message += f"📊 Total: {totals}\n"
-    if best_bet_line: message += f"✅ *Best Bet*: {best_bet_line}\n"
+    if moneylines:
+        message += f"🏆 ML: {moneylines}\n"
+    if spreads:
+        message += f"📏 Spread: {spreads}\n"
+    if totals:
+        message += f"📊 Total: {totals}\n"
+    
+    if best_bet_line:
+        message += f"✅ *Best Bet ML*: {best_bet_line}\n"
+    if best_spread_line:
+        message += f"✅ *Best Bet Spread*: {best_spread_line}\n"
+    if best_total_line:
+        message += f"✅ *Best Bet Total*: {best_total_line}\n"
+    
     return message.strip()
 
 def fetch_oddsapi_bets():
-    messages = []
-    MAX_REALISTIC_DIFF = 15.0  # max % difference allowed for alerts
+    url = "https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
+    params = {
+        "regions": "us",
+        "oddsFormat": "american",
+        "markets": "h2h,spreads,totals",
+        "apiKey": ODDS_API_KEY
+    }
 
-    for sport in ODDSAPI_SPORTS:
-        url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
-        params = {
-            "apiKey": ODDS_API_KEY,
-            "regions": "us",
-            "markets": "h2h,spreads,totals",
-            "oddsFormat": "american"
-        }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-        try:
-            res = requests.get(url, params=params)
-            games = res.json()
-            for game in games:
-                start_time = datetime.fromisoformat(game['commence_time'].replace("Z", "+00:00")).astimezone(tz)
-                if not (today <= start_time < tomorrow):
-                    continue
+        for game in data:
+            teams = game["teams"]
+            home_team = game["home_team"]
+            away_team = [team for team in teams if team != home_team][0]
+            commence_time = datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(pytz.timezone("America/New_York"))
+            time_str = commence_time.strftime("%b %d %I:%M %p")
 
-                home = game['home_team']
-                away = game['away_team']
-                header = f"{home} vs {away}"
-                time_str = start_time.strftime("%b %d %I:%M %p")
+            bookmakers = game.get("bookmakers", [])
+            if not bookmakers:
+                continue
 
-                moneylines_str = ""
-                spreads_str = ""
-                totals_str = ""
+            best_bookmaker = bookmakers[0]
+            markets = best_bookmaker.get("markets", [])
+            header = f"{away_team} vs {home_team}"
+            moneylines = spreads = totals = ""
+            best_bet_line = ""
+            best_spread_line = ""
+            best_total_line = ""
 
-                best_ev = -999
-                best_bet_line = ""
-                best_bet_market = ""
-                best_bet_type = ""
+            # Moneyline
+            for m in markets:
+                if m['key'] == 'h2h':
+                    lines = []
+                    best_ev = -999
+                    for o in m['outcomes']:
+                        name = o['name']
+                        price = o['price']
+                        win_prob = 0.56  # placeholder
+                        imp = implied_prob(price)
+                        diff = round((win_prob - imp) * 100, 2)
+                        ev_line = f"{name} @ {format_odds(price)} (Win Prob {round(win_prob * 100, 1)}% vs Implied {round(imp * 100, 2)}% | Diff {diff}%)"
+                        lines.append(f"{name}: {format_odds(price)}")
+                        if diff > best_ev:
+                            best_ev = diff
+                            best_bet_line = ev_line
+                    moneylines = " | ".join(lines)
 
-                # Make sure bookmakers and markets exist
-                if not game.get("bookmakers"):
-                    continue
+            # Spread
+            for m in markets:
+                if m['key'] == 'spreads':
+                    lines = []
+                    best_ev = -999
+                    for o in m['outcomes']:
+                        name = o['name']
+                        price = o['price']
+                        point = o['point']
+                        win_prob = 0.54  # placeholder
+                        imp = implied_prob(price)
+                        diff = round((win_prob - imp) * 100, 2)
+                        ev_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob * 100, 1)}% vs Implied {round(imp * 100, 2)}% | Diff {diff}%)"
+                        lines.append(f"{name} {point} @ {format_odds(price)}")
+                        if diff > best_ev:
+                            best_ev = diff
+                            best_spread_line = ev_line
+                    spreads = " | ".join(lines)
 
-                markets = game['bookmakers'][0].get('markets', [])
+            # Total
+            for m in markets:
+                if m['key'] == 'totals':
+                    lines = []
+                    best_ev = -999
+                    for o in m['outcomes']:
+                        name = o['name']
+                        price = o['price']
+                        point = o['point']
+                        win_prob = 0.53  # placeholder
+                        imp = implied_prob(price)
+                        diff = round((win_prob - imp) * 100, 2)
+                        ev_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob * 100, 1)}% vs Implied {round(imp * 100, 2)}% | Diff {diff}%)"
+                        lines.append(f"{name} {point} @ {format_odds(price)}")
+                        if diff > best_ev:
+                            best_ev = diff
+                            best_total_line = ev_line
+                    totals = " | ".join(lines)
 
-                # Process moneylines
-                for m in markets:
-                    if m['key'] == 'h2h':
-                        lines = []
-                        for outcome in m['outcomes']:
-                            team_name = outcome['name']
-                            price = outcome['price']
-                            lines.append(f"{team_name}: {format_odds(price)}")
+            # Format message
+            message = build_bet_message(
+                header, time_str,
+                moneylines, spreads, totals,
+                best_bet_line, best_spread_line, best_total_line
+            )
 
-                            # Dummy win probability for example, replace with your model
-                            win_prob = 0.56  
-                            imp_prob = implied_prob(price)
-                            diff = round((win_prob - imp_prob) * 100, 2)
+            send_telegram_alert(message)
 
-                            if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
-                                best_ev = diff
-                                best_bet_line = f"{team_name} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
-                                best_bet_market = 'ML'
-                                best_bet_type = team_name
-                        moneylines_str = " | ".join(lines)
-
-                    if m['key'] == 'spreads':
-                        spread_lines = []
-                        for outcome in m['outcomes']:
-                            name = outcome['name']
-                            point = outcome['point']
-                            price = outcome['price']
-                            spread_lines.append(f"{name} {point} @ {format_odds(price)}")
-
-                            # Dummy win probability, replace with your model
-                            win_prob = 0.54  
-                            imp_prob = implied_prob(price)
-                            diff = round((win_prob - imp_prob) * 100, 2)
-
-                            if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
-                                best_ev = diff
-                                best_bet_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
-                                best_bet_market = 'Spread'
-                                best_bet_type = f"{name} {point}"
-                        spreads_str = " | ".join(spread_lines)
-
-                    if m['key'] == 'totals':
-                        total_lines = []
-                        for outcome in m['outcomes']:
-                            name = outcome['name']
-                            point = outcome['point']
-                            price = outcome['price']
-                            total_lines.append(f"{name} {point} @ {format_odds(price)}")
-
-                            # Dummy win probability, replace with your model
-                            win_prob = 0.53  
-                            imp_prob = implied_prob(price)
-                            diff = round((win_prob - imp_prob) * 100, 2)
-
-                            if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
-                                best_ev = diff
-                                best_bet_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
-                                best_bet_market = 'Total'
-                                best_bet_type = f"{name} {point}"
-                        totals_str = " | ".join(total_lines)
-
-                if best_ev > 0:
-                    # Add best spread and total pick at footer as you wanted
-                    footer = ""
-                    if best_bet_market != 'Spread' and spreads_str:
-                        footer += f"\n📏 Spread: {spreads_str}"
-                    if best_bet_market != 'Total' and totals_str:
-                        footer += f"\n📊 Total: {totals_str}"
-
-                    message = (
-                        f"🟢 {header}\n"
-                        f"📅 {time_str}\n"
-                        f"🏆 ML: {moneylines_str}\n"
-                        f"📏 Spread: {spreads_str}\n"
-                        f"📊 Total: {totals_str}\n"
-                        f"✅ Best Bet [{best_bet_market}]: {best_bet_line}{footer}"
-                    )
-                    messages.append(message)
-
-        except Exception as e:
-            print("OddsAPI error:", e)
-    return messages
+    except Exception as e:
+        print(f"Error fetching OddsAPI data: {e}")
 
 def fetch_sportmonks_bets():
     messages = []
@@ -199,14 +202,17 @@ def fetch_sportmonks_bets():
     return messages
 
 def main():
-    print("✅ Fetching all bets...")
-    all_messages = fetch_oddsapi_bets() + fetch_sportmonks_bets()
-    if all_messages:
-        for msg in all_messages:
-            send_telegram_message(msg)
-        print(f"✅ Sent {len(all_messages)} total bets.")
-    else:
-        print("⚠️ No bets found.")
+    try:
+        games_today = fetch_odds_api_bets()
+
+        for game in games_today:
+            best_bets = calculate_best_bets(game)
+            if best_bets:
+                message = format_bet_message(game, best_bets)
+                send_telegram_message(message)
+
+    except Exception as e:
+        print(f"🚨 Error in main execution: {e}")
 
 if __name__ == "__main__":
     main()
