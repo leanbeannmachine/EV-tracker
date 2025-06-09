@@ -63,42 +63,99 @@ def fetch_oddsapi_bets():
                 away = game['away_team']
                 header = f"{home} vs {away}"
                 time_str = start_time.strftime("%b %d %I:%M %p")
-                moneylines = spreads = totals = ""
+
+                moneylines_str = ""
+                spreads_str = ""
+                totals_str = ""
+
                 best_ev = -999
                 best_bet_line = ""
+                best_bet_market = ""
+                best_bet_type = ""
 
-                markets = game['bookmakers'][0]['markets'] if game.get("bookmakers") else []
+                # Make sure bookmakers and markets exist
+                if not game.get("bookmakers"):
+                    continue
+
+                markets = game['bookmakers'][0].get('markets', [])
+
+                # Process moneylines
                 for m in markets:
                     if m['key'] == 'h2h':
                         lines = []
-                        for team in m['outcomes']:
-                            team_name = team['name']
-                            price = team['price']
+                        for outcome in m['outcomes']:
+                            team_name = outcome['name']
+                            price = outcome['price']
                             lines.append(f"{team_name}: {format_odds(price)}")
 
-                            # Placeholder: you can plug your own model here for win_prob
-                            win_prob = 0.56
+                            # Dummy win probability for example, replace with your model
+                            win_prob = 0.56  
                             imp_prob = implied_prob(price)
                             diff = round((win_prob - imp_prob) * 100, 2)
 
-                            # Filter for realistic EV diffs
                             if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
                                 best_ev = diff
                                 best_bet_line = f"{team_name} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
-                        moneylines = " | ".join(lines)
+                                best_bet_market = 'ML'
+                                best_bet_type = team_name
+                        moneylines_str = " | ".join(lines)
 
                     if m['key'] == 'spreads':
-                        spreads = " | ".join(
-                            f"{o['name']} {o['point']} @ {format_odds(o['price'])}" for o in m['outcomes']
-                        )
+                        spread_lines = []
+                        for outcome in m['outcomes']:
+                            name = outcome['name']
+                            point = outcome['point']
+                            price = outcome['price']
+                            spread_lines.append(f"{name} {point} @ {format_odds(price)}")
+
+                            # Dummy win probability, replace with your model
+                            win_prob = 0.54  
+                            imp_prob = implied_prob(price)
+                            diff = round((win_prob - imp_prob) * 100, 2)
+
+                            if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
+                                best_ev = diff
+                                best_bet_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
+                                best_bet_market = 'Spread'
+                                best_bet_type = f"{name} {point}"
+                        spreads_str = " | ".join(spread_lines)
 
                     if m['key'] == 'totals':
-                        totals = " | ".join(
-                            f"{o['name']} {o['point']} @ {format_odds(o['price'])}" for o in m['outcomes']
-                        )
+                        total_lines = []
+                        for outcome in m['outcomes']:
+                            name = outcome['name']
+                            point = outcome['point']
+                            price = outcome['price']
+                            total_lines.append(f"{name} {point} @ {format_odds(price)}")
 
-                if best_ev > 0:  # only send messages with good value bets
-                    message = build_bet_message(header, time_str, moneylines, spreads, totals, best_bet_line)
+                            # Dummy win probability, replace with your model
+                            win_prob = 0.53  
+                            imp_prob = implied_prob(price)
+                            diff = round((win_prob - imp_prob) * 100, 2)
+
+                            if 0 < diff < MAX_REALISTIC_DIFF and diff > best_ev:
+                                best_ev = diff
+                                best_bet_line = f"{name} {point} @ {format_odds(price)} (Win Prob {round(win_prob*100, 2)}% vs Implied {round(imp_prob*100, 2)}% | Diff {diff}%)"
+                                best_bet_market = 'Total'
+                                best_bet_type = f"{name} {point}"
+                        totals_str = " | ".join(total_lines)
+
+                if best_ev > 0:
+                    # Add best spread and total pick at footer as you wanted
+                    footer = ""
+                    if best_bet_market != 'Spread' and spreads_str:
+                        footer += f"\n📏 Spread: {spreads_str}"
+                    if best_bet_market != 'Total' and totals_str:
+                        footer += f"\n📊 Total: {totals_str}"
+
+                    message = (
+                        f"🟢 {header}\n"
+                        f"📅 {time_str}\n"
+                        f"🏆 ML: {moneylines_str}\n"
+                        f"📏 Spread: {spreads_str}\n"
+                        f"📊 Total: {totals_str}\n"
+                        f"✅ Best Bet [{best_bet_market}]: {best_bet_line}{footer}"
+                    )
                     messages.append(message)
 
         except Exception as e:
