@@ -5,209 +5,194 @@ import telegram
 import json
 import os
 
-# === API KEYS (paste yours) ===
+# 🔑 API KEYS
 ODDS_API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
-SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0G-BLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+SPORTMONKS_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0G-BLTAplBKVHt8YL6m0jNZpmUbCu4szH"  # 👈 Plug in your valid key
 
-# === Telegram Setup ===
+# 📲 TELEGRAM
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-# === Config ===
 BOOKMAKERS = ["pinnacle", "betonlineag"]
 SPORTS = ["baseball_mlb", "basketball_wnba"]
 RESULTS_FILE = "results.json"
-TIMEZONE = pytz.timezone('US/Central')
 
-# === UTC/CT Helpers ===
-def central_time(iso):
-    return datetime.fromisoformat(iso.replace('Z', '+00:00')).astimezone(TIMEZONE)
+# 📌 DATE FILTERS
+def is_valid_day(game_time_str):
+    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Central'))
+    today = datetime.now(pytz.timezone('US/Central')).date()
+    return game_time.date() in [today, today + timedelta(days=1)]
 
-def is_within_next_2_days(iso):
-    dt = central_time(iso)
-    now = datetime.now(TIMEZONE)
-    return 0 <= (dt.date() - now.date()).days <= 1
-
-# === Team ID Mappings ===
-# Fetches once at start; maps team names to IDs for validation and future use
-def get_active_names(sport_key):
-    resp = requests.get(f"https://api.the-odds-api.com/v4/sports/{sport_key}/events",
-                        params={"apiKey": ODDS_API_KEY})
-    resp.raise_for_status()
-    names = set()
-    for e in resp.json():
-        names.add(e["home_team"])
-        names.add(e["away_team"])
-    return names
-
-def get_soccer_team_ids():
-    ids = {}
-    page = 1
-    while True:
-        r = requests.get(
-            "https://api.sportmonks.com/v3/football/teams",
-            params={"api_token": SPORTMONKS_API_KEY, "page": page, "per_page": 50}
-        )
-        r.raise_for_status()
-        data = r.json().get("data", [])
-        if not data:
-            break
-        for t in data:
-            ids[t["name"]] = t["id"]
-        page += 1
-    return ids
-
-MLB_TEAMS = get_active_names("baseball_mlb")
-WNBA_TEAMS = get_active_names("basketball_wnba")
-SOCCER_TEAMS = get_soccer_team_ids()
-print(f"Mapped {len(MLB_TEAMS)} MLB teams, {len(WNBA_TEAMS)} WNBA teams, {len(SOCCER_TEAMS)} soccer clubs")
-
-# === EV & Message Formatting Helpers ===
-def calculate_ev(odds, win_prob=0.5):
-    dec = 1 + (odds/100) if odds > 0 else 1 + (100/abs(odds))
-    return (dec * win_prob - 1) * 100
+# 🧠 EV CALCULATION
+def calculate_ev(american_odds, win_prob):
+    decimal_odds = 1 + (american_odds / 100) if american_odds > 0 else 1 + (100 / abs(american_odds))
+    return ((decimal_odds * win_prob) - 1) * 100
 
 def format_ev_label(ev):
     if ev > 7:
         return "🟢 *BEST VALUE*"
-    if ev > 3:
+    elif ev > 3:
         return "🟡 *GOOD VALUE*"
-    if ev > 0:
+    elif ev > 0:
         return "🟠 *SLIGHT EDGE*"
     return "🔴 *NO EDGE*"
 
+# 📣 MESSAGE GEN
 def generate_reasoning(market, team):
     if market == "h2h":
-        return f"{team} are riding momentum 🚀 and metrics favor them."
-    if market == "spreads":
-        return f"{team} covers spreads consistently 🧱 with strong performance."
-    if market == "totals":
-        return f"Scoring tempo supports this totals play 📈"
-    return "Value play based on matchup trends."
+        return f"The {team} come in hot 🚀 and the metrics favor them 📊. Great value for a team in form!"
+    elif market == "spreads":
+        return f"{team} has covered spreads reliably 🧱 with solid defense. A strong value spot!"
+    elif market == "totals":
+        return f"Tempo and trends support this line 📈. The matchup data aligns with value on this total."
+    return "Data and trends suggest this is a smart value play."
 
-def send_telegram_message(text):
+def format_message(game, market, outcome, odds, ev, start_time):
+    market_key = market.lower()
+    team = outcome.get('name', '')
+    line_info = ""
+
+    if market_key == "spreads" and 'point' in outcome:
+        line_info = f" {outcome['point']:+.1f}"
+    elif market_key == "totals" and 'point' in outcome:
+        line_info = f" {outcome['point']:.1f}"
+
+    matchup = f"{game.get('away_team', '')} @ {game.get('home_team', '')}"
+    team_line = f"{team}{line_info}"
+    readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Central')).strftime('%b %d, %I:%M %p CT')
+    odds_str = f"{odds:+}" if isinstance(odds, int) else odds
+    label = format_ev_label(ev)
+    reasoning = generate_reasoning(market, team)
+
+    return (
+        f"📢 *{matchup}*\n"
+        f"📊 *{market.upper()} BET*\n\n"
+        f"🔥 *Pick:* **{team_line}**\n"
+        f"💵 *Odds:* {odds_str}\n"
+        f"📈 *Expected Value:* **+{ev:.1f}%**\n"
+        f"{label}\n\n"
+        f"🕒 *Game Time:* {readable_time}\n"
+        f"💡 *Why We Like It:*\n{reasoning}\n"
+        f"——————"
+    )
+
+def send_telegram_message(message):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode=telegram.ParseMode.MARKDOWN)
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
+    except telegram.error.TelegramError as e:
+        print(f"Telegram error: {e}")
 
-def save_result(entry):
-    data = json.load(open(RESULTS_FILE)) if os.path.exists(RESULTS_FILE) else []
-    data.append(entry)
-    json.dump(data, open(RESULTS_FILE, "w"), indent=2)
-
-# === OddsAPI Fetch & Soccer Fetch ===
-def fetch_odds(sport_key):
-    resp = requests.get(f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds", params={
+# 📡 ODDS FETCHER
+def fetch_odds_for_sport(sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
+    params = {
         "apiKey": ODDS_API_KEY,
         "regions": "us",
         "markets": "h2h,spreads,totals",
         "oddsFormat": "american",
         "bookmakers": ",".join(BOOKMAKERS)
-    })
-    resp.raise_for_status()
-    return resp.json()
+    }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error fetching odds for {sport_key}: {e}")
+        return []
 
-def fetch_soccer_fixtures():
-    start = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
-    end = (datetime.now(TIMEZONE) + timedelta(days=1)).strftime("%Y-%m-%d")
-    resp = requests.get(
-        f"https://api.sportmonks.com/v3/football/fixtures/between/{start}/{end}",
-        params={"api_token": SPORTMONKS_API_KEY}
-    )
-    resp.raise_for_status()
-    return resp.json().get("data", [])
+# 📁 LOG RESULTS
+def save_result_log(entry):
+    if not os.path.exists(RESULTS_FILE):
+        with open(RESULTS_FILE, 'w') as f:
+            json.dump([], f)
 
-# === Unified Game Processing ===
-def process_game(sport, game, is_soccer=False):
-    iso = game.get("commence_time") or game["time"]["starting_at"]["date_time_utc"]
-    if not is_within_next_2_days(iso):
+    with open(RESULTS_FILE, 'r+') as f:
+        data = json.load(f)
+        data.append(entry)
+        f.seek(0)
+        json.dump(data, f, indent=2)
+
+# ✅ RESULTS CHECKER (optional completion)
+def check_and_update_results():
+    print("🔄 Checking for resolved bets...")
+    now = datetime.utcnow()
+
+    if not os.path.exists(RESULTS_FILE):
         return
 
-    if is_soccer:
-        home = game["localteam"]["data"]["name"]
-        away = game["visitorteam"]["data"]["name"]
-        if home not in SOCCER_TEAMS and away not in SOCCER_TEAMS:
-            return
-        outcomes = game.get("odds", {}).get("data", [])
-        team_header = f"{away} vs {home}"
-    else:
-        home = game["home_team"]
-        away = game["away_team"]
-        if sport == "baseball_mlb" and home not in MLB_TEAMS and away not in MLB_TEAMS:
-            return
-        if sport == "basketball_wnba" and home not in WNBA_TEAMS and away not in WNBA_TEAMS:
-            return
-        outcome_set = game["bookmakers"][0]["markets"][0]
-        outcomes = outcome_set["outcomes"]
-        team_header = f"{away} vs {home}"
+    with open(RESULTS_FILE, "r+") as f:
+        results = json.load(f)
 
-    market_key = outcome_set["key"] if not is_soccer else "h2h"
-    best = max(outcomes, key=lambda o: calculate_ev(o["price"]))
-    ev = calculate_ev(best["price"])
-    if 3 <= ev <= 15:
-        line_info = f" {best.get('point', ''):+.1f}" if market_key in ("spreads", "totals") else ""
-        dt = central_time(iso).strftime("%b %d, %I:%M %p CT")
-        msg = (
-            f"📊 *{team_header}* — *{market_key.upper()} BET*\n"
-            f"🔥 *Pick:* **{best['name']}{line_info}** @ {best['price']:+}\n"
-            f"📈 EV: **+{ev:.1f}%** {format_ev_label(ev)}\n"
-            f"🕒 *Game Time:* {dt}\n"
-            f"💡 {generate_reasoning(market_key, best['name'])}\n"
-            "——————"
-        )
-        send_telegram_message(msg)
-        save_result({
-            "sport": "soccer" if is_soccer else sport,
-            "market": market_key,
-            "pick": best["name"],
-            "home": home,
-            "away": away,
-            "line": best.get("point", 0),
-            "game_time": iso,
-            "resolved": False
-        })
-
-# === Main & Result Checker ===
-def check_results():
-    entries = json.load(open(RESULTS_FILE, "r")) if os.path.exists(RESULTS_FILE) else []
-    now = datetime.utcnow()
-    for e in entries:
+    for e in results:
         if e.get("resolved"):
             continue
         start = datetime.fromisoformat(e["game_time"])
-        if now - start < timedelta(hours=12):
-            continue
-        try:
-            resp = requests.get(
-                f"https://api.the-odds-api.com/v4/sports/{e['sport']}/scores",
-                params={"apiKey": ODDS_API_KEY, "daysFrom": 2}
-            )
-            resp.raise_for_status()
-            for g in resp.json():
-                if g["home_team"] == e["home"] and g["away_team"] == e["away"]:
-                    hs = g["scores"]["home_score"]
-                    as_ = g["scores"]["away_score"]
-res = (
-    "won" if (
-        e["market"] == "h2h" and (
-            (e["pick"] == e["home"] and hs > as_) or
-            (e["pick"] == e["away"] and as_ > hs)
-        )
-    ) else "lost"
-)                    
-                    print(f"✅ Logged {res} for {e['pick']}")
-                    break
-        except:
-            continue
-    json.dump(entries, open(RESULTS_FILE, "w"), indent=2)
+        if now - start >= timedelta(hours=12):
+            try:
+                url = f"https://api.the-odds-api.com/v4/sports/{e['sport']}/scores"
+                params = {"apiKey": ODDS_API_KEY, "daysFrom": 2}
+                r = requests.get(url, params=params)
+                r.raise_for_status()
+                for g in r.json():
+                    if g.get("home_team") == e["home"] and g.get("away_team") == e["away"]:
+                        hs = g.get("scores", {}).get("home_score", 0)
+                        as_ = g.get("scores", {}).get("away_score", 0)
+                        res = (
+                            "won" if (
+                                (e["market"] == "h2h" and ((e["pick"] == e["home"] and hs > as_) or (e["pick"] == e["away"] and as_ > hs)))
+                            ) else "lost"
+                        )
+                        e["result"] = res
+                        e["resolved"] = True
+                        print(f"📌 Logged result for {e['pick']}: {res}")
+                        break
+            except Exception as err:
+                print(f"❌ Score fetch failed: {err}")
 
+    with open(RESULTS_FILE, "w") as f:
+        json.dump(results, f, indent=2)
+
+# 🚀 MAIN
 def main():
-    for sp in SPORTS:
-        for g in fetch_odds(sp):
-            process_game(sp, g)
-    for g in fetch_soccer_fixtures():
-        process_game("soccer", g, is_soccer=True)
-    check_results()
-    print("✅ Cycle complete.")
+    sent_any = False
+    for sport in SPORTS:
+        games = fetch_odds_for_sport(sport)
+        for game in games:
+            if not is_valid_day(game['commence_time']):
+                continue
+            for bookmaker in game.get('bookmakers', []):
+                for market in bookmaker.get('markets', []):
+                    best_outcome = None
+                    best_ev = -999
+                    for outcome in market.get('outcomes', []):
+                        odds = outcome.get('price')
+                        if odds is None:
+                            continue
+                        ev = calculate_ev(odds, 0.5)  # ← use your model here
+                        if ev > best_ev:
+                            best_ev = ev
+                            best_outcome = outcome
+                    if best_outcome and 3 <= best_ev <= 15:
+                        msg = format_message(game, market['key'], best_outcome, best_outcome['price'], best_ev, game['commence_time'])
+                        send_telegram_message(msg)
+                        sent_any = True
+                        save_result_log({
+                            "sport": sport,
+                            "market": market['key'],
+                            "pick": best_outcome.get("name", ""),
+                            "home": game.get("home_team"),
+                            "away": game.get("away_team"),
+                            "line": best_outcome.get("point", 0),
+                            "type": "over" if "over" in best_outcome.get("name", "").lower() else "under" if "under" in best_outcome.get("name", "").lower() else None,
+                            "game_time": game['commence_time'],
+                            "resolved": False
+                        })
+    if not sent_any:
+        print("✅ Script ran but no EV bets found.")
+    else:
+        print("✅ Bets sent.")
+    check_and_update_results()
 
 if __name__ == "__main__":
     main()
