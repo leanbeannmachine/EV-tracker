@@ -10,6 +10,7 @@ import os
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 # Odds API config
+SPORTSMONK_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
 API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
 SPORT_KEY = 'baseball_mlb'  # change as needed
 
