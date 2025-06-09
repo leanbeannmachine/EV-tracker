@@ -127,35 +127,33 @@ def format_game_summary_with_best_bets(game, best_bets_by_market):
                 elif market["key"] == "totals":
                     total.append(f"{market['key'].capitalize()} {point} @ {price:+}")
 
-    def format_best_line(label, bet_data):
-        if not bet_data:
-            return f"❌ {label}: None found"
-        team = bet_data['outcome']['name']
-        odds = bet_data['outcome']['price']
-        point = bet_data['outcome'].get('point')
-        ev = bet_data['ev']
-        win_prob = 50.0  # Placeholder
+def format_best_line(label, bet_data):
+    if not bet_data:
+        return f"❌ {label}: None found"
 
-        # Implied probability
-        implied_prob = 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
-        diff = (win_prob - (implied_prob * 100))
+    team = bet_data['outcome']['name']
+    odds = bet_data['outcome']['price']
+    point = bet_data['outcome'].get('point')
+    win_prob = bet_data.get('win_prob', 0) * 100
 
-        # Label by EV diff
-        if diff > 7:
-            badge = "🟢 BEST Bet"
-        elif diff > 3:
-            badge = "🟡 Good Value"
-        elif diff > 0:
-            badge = "🟠 Slight Edge"
-        else:
-            badge = "🔴 No Edge"
+    implied_prob = 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
+    diff = win_prob - (implied_prob * 100)
 
-        point_text = f"{point:+.1f} " if point else ""
-        return (
-            f"{badge} {label}: {team} {point_text}@ {odds:+} "
-            f"(Win Prob 50.0% vs Implied {implied_prob * 100:.2f}% | Diff {diff:.2f}%)"
-        )
+    if diff > 10:
+        badge = "🟢 BEST Bet"
+    elif diff > 5:
+        badge = "🟡 Good Value"
+    elif diff > 2:
+        badge = "🟠 Slight Edge"
+    else:
+        badge = "🔴 No Edge"
 
+    point_text = f"{point:+.1f} " if point else ""
+    return (
+        f"{badge} {label}: {team} {point_text}@ {odds:+} "
+        f"(Win Prob {win_prob:.1f}% vs Implied {implied_prob * 100:.2f}% | Diff {diff:.2f}%)"
+    )
+    
     message = (
         f"🏟️ {away} vs {home}\n"
         f"📅 {start_time}\n"
