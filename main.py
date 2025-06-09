@@ -104,57 +104,69 @@ def send_telegram_message(message):
     except telegram.error.TelegramError as e:
         print(f"Telegram error: {e}")
 
-def format_game_summary_with_best_bets(game, best_bets):
+def format_game_summary_with_best_bets(game, best_bets_by_market):
     home = game.get("home_team", "")
     away = game.get("away_team", "")
-    start_time = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
-    formatted_time = start_time.strftime('%b %d %I:%M %p')
+    start_time = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d %I:%M %p ET')
 
-    ml_line = "N/A"
-    spread_line = "N/A"
-    total_line = "N/A"
+    # Collect odds lines
+    moneyline = []
+    spread = []
+    total = []
 
-    for bookmaker in game.get('bookmakers', []):
-        for market in bookmaker.get('markets', []):
-            if market['key'] == "h2h":
-                ml_odds = {o['name']: o['price'] for o in market['outcomes']}
-                ml_line = f"{away}: {ml_odds.get(away, 'N/A')} | {home}: {ml_odds.get(home, 'N/A')}"
-            elif market['key'] == "spreads":
-                spread_line = " | ".join([
-                    f"{o['name']} {o.get('point', ''):+} @ {o['price']}" for o in market['outcomes']
-                ])
-            elif market['key'] == "totals":
-                total_line = " | ".join([
-                    f"{o['name']} {o.get('point', '')} @ {o['price']}" for o in market['outcomes']
-                ])
+    for bookmaker in game.get("bookmakers", []):
+        for market in bookmaker.get("markets", []):
+            for outcome in market.get("outcomes", []):
+                name = outcome.get("name", "")
+                price = outcome.get("price", "")
+                point = outcome.get("point", "")
+                if market["key"] == "h2h":
+                    moneyline.append(f"{name}: {price:+}")
+                elif market["key"] == "spreads":
+                    spread.append(f"{name} {point:+} @ {price:+}")
+                elif market["key"] == "totals":
+                    total.append(f"{market['key'].capitalize()} {point} @ {price:+}")
 
-    def format_best_bet_line(label, bet):
-        if not bet:
-            return f"❌ *Best Bet {label}:* None found"
-        outcome = bet['outcome']
-        team = outcome['name']
-        odds = outcome['price']
-        point = outcome.get('point')
-        win_prob = bet['win_prob'] * 100
-        implied_prob = 100 / (100 + abs(odds)) if odds > 0 else abs(odds) / (100 + abs(odds))
-        implied_prob *= 100
-        diff = win_prob - implied_prob
-        point_str = f" {point:+}" if point is not None else ""
+    def format_best_line(label, bet_data):
+        if not bet_data:
+            return f"❌ {label}: None found"
+        team = bet_data['outcome']['name']
+        odds = bet_data['outcome']['price']
+        point = bet_data['outcome'].get('point')
+        ev = bet_data['ev']
+        win_prob = 50.0  # Placeholder
+
+        # Implied probability
+        implied_prob = 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
+        diff = (win_prob - (implied_prob * 100))
+
+        # Label by EV diff
+        if diff > 7:
+            badge = "🟢 BEST Bet"
+        elif diff > 3:
+            badge = "🟡 Good Value"
+        elif diff > 0:
+            badge = "🟠 Slight Edge"
+        else:
+            badge = "🔴 No Edge"
+
+        point_text = f"{point:+.1f} " if point else ""
         return (
-            f"✅ *Best Bet {label}:* {team}{point_str} @ {odds} "
-            f"(Win Prob {win_prob:.1f}% vs Implied {implied_prob:.2f}% | Diff {diff:.2f}%)"
+            f"{badge} {label}: {team} {point_text}@ {odds:+} "
+            f"(Win Prob 50.0% vs Implied {implied_prob * 100:.2f}% | Diff {diff:.2f}%)"
         )
 
-    return (
-        f"🏟️ *{away} vs {home}*\n"
-        f"📅 {formatted_time} ET\n"
-        f"🏆 *ML:* {ml_line}\n"
-        f"📏 *Spread:* {spread_line}\n"
-        f"📊 *Total:* {total_line}\n\n"
-        f"{format_best_bet_line('Moneyline', best_bets.get('h2h'))}\n"
-        f"{format_best_bet_line('Spread', best_bets.get('spreads'))}\n"
-        f"{format_best_bet_line('Total', best_bets.get('totals'))}"
+    message = (
+        f"🏟️ {away} vs {home}\n"
+        f"📅 {start_time}\n"
+        f"🏆 ML: {' | '.join(moneyline) if moneyline else 'N/A'}\n"
+        f"📏 Spread: {' | '.join(spread) if spread else 'N/A'}\n"
+        f"📊 Total: {' | '.join(total) if total else 'N/A'}\n\n"
+        f"{format_best_line('Moneyline', best_bets_by_market.get('h2h'))}\n"
+        f"{format_best_line('Spread', best_bets_by_market.get('spreads'))}\n"
+        f"{format_best_line('Total', best_bets_by_market.get('totals'))}"
     )
+    return message
 
 def main():
     sent_any = False
