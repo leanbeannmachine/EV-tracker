@@ -162,40 +162,39 @@ def main():
         games = fetch_odds_for_sport(sport)
         filtered_games = filter_today_games(games)
 
-        for game in filtered_games:
-    best_bets_by_market = {"h2h": None, "spreads": None, "totals": None}
+         for game in filtered_games:
+            best_bets_by_market = {"h2h": None, "spreads": None, "totals": None}
 
-    for bookmaker in game.get('bookmakers', []):
-        for market in bookmaker.get('markets', []):
-            market_key = market['key']
-            best_ev = -999
-            best_outcome = None
+            for bookmaker in game.get('bookmakers', []):
+                for market in bookmaker.get('markets', []):
+                    market_key = market['key']
+                    best_ev = -999
+                    best_outcome = None
 
-            for outcome in market.get('outcomes', []):
-                odds = outcome.get('price')
-                if odds is None:
-                    continue
+                    for outcome in market.get('outcomes', []):
+                        odds = outcome.get('price')
+                        if odds is None:
+                            continue
 
-                win_prob = 0.5  # Placeholder win probability (you can upgrade this later)
-                ev = calculate_ev(odds, win_prob)
+                        win_prob = 0.5  # Placeholder win probability (can be improved later)
+                        ev = calculate_ev(odds, win_prob)
 
-                if ev > best_ev:
-                    best_ev = ev
-                    best_outcome = outcome
+                        if ev > best_ev:
+                            best_ev = ev
+                            best_outcome = outcome
 
-            # Filter out unrealistic high-EV lines
-            if best_outcome and best_ev <= 13.0:  # <= 13% EV max
-                best_bets_by_market[market_key] = {
-                    "outcome": best_outcome,
-                    "win_prob": win_prob,
-                    "ev": best_ev
-                }
+                    # Keep bets only under the realistic EV threshold
+                    if best_outcome and best_ev <= 13.0:
+                        best_bets_by_market[market_key] = {
+                            "outcome": best_outcome,
+                            "win_prob": win_prob,
+                            "ev": best_ev
+                        }
 
-    # Only send message if we have at least one solid bet
-    if any(best_bets_by_market.values()):
-        summary_msg = format_game_summary_with_best_bets(game, best_bets_by_market)
-        send_telegram_message(summary_msg)
-        sent_any = True
+            if any(best_bets_by_market.values()):
+                summary_msg = format_game_summary_with_best_bets(game, best_bets_by_market)
+                send_telegram_message(summary_msg)
+                sent_any = True       
 
     if not sent_any:
         print("✅ Script ran but no value bets were found.")
