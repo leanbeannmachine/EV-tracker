@@ -10,7 +10,7 @@ import os
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 # Odds API config
-API_KEY = '7b5d540e73c8790a95b84d3713e1a572'
+API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
 SPORT_KEY = 'baseball_mlb'  # change as needed
 
 def fetch_odds_api_bets():
