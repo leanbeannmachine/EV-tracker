@@ -49,7 +49,7 @@ def calculate_ev(american_odds, win_prob):
 def format_ev_label(ev):
     if ev > 5:
         return "🟢 *BEST VALUE*"
-    elif ev > 3:
+    elif ev > 2:
         return "🟡 *GOOD VALUE*"
     elif ev > 0:
         return "🟠 *SLIGHT EDGE*"
