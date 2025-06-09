@@ -129,7 +129,7 @@ def main():
                             best_ev = ev
                             best_outcome = outcome
 
-                    if best_outcome and best_ev >= 3.0:
+                    if best_outcome and 3.0 <= best_ev <= 13.0:
                         message = format_message(
                             game,
                             market_key,
