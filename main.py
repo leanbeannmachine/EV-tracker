@@ -186,11 +186,14 @@ def check_results():
                 if g["home_team"] == e["home"] and g["away_team"] == e["away"]:
                     hs = g["scores"]["home_score"]
                     as_ = g["scores"]["away_score"]
-                    res = ("won" if ((e["market"]=="h2h" and
-                                     ((e["pick"]==e["home"] and hs>as_) or
-                                      (e["pick"]==e["away"] and as_>hs))) else "lost")
-                    e["result"] = res
-                    e["resolved"] = True
+res = (
+    "won" if (
+        e["market"] == "h2h" and (
+            (e["pick"] == e["home"] and hs > as_) or
+            (e["pick"] == e["away"] and as_ > hs)
+        )
+    ) else "lost"
+)                    
                     print(f"✅ Logged {res} for {e['pick']}")
                     break
         except:
