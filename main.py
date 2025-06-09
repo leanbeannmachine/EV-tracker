@@ -104,6 +104,58 @@ def send_telegram_message(message):
     except telegram.error.TelegramError as e:
         print(f"Telegram error: {e}")
 
+def format_game_summary_with_best_bets(game, best_bets):
+    home = game.get("home_team", "")
+    away = game.get("away_team", "")
+    start_time = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
+    formatted_time = start_time.strftime('%b %d %I:%M %p')
+
+    ml_line = "N/A"
+    spread_line = "N/A"
+    total_line = "N/A"
+
+    for bookmaker in game.get('bookmakers', []):
+        for market in bookmaker.get('markets', []):
+            if market['key'] == "h2h":
+                ml_odds = {o['name']: o['price'] for o in market['outcomes']}
+                ml_line = f"{away}: {ml_odds.get(away, 'N/A')} | {home}: {ml_odds.get(home, 'N/A')}"
+            elif market['key'] == "spreads":
+                spread_line = " | ".join([
+                    f"{o['name']} {o.get('point', ''):+} @ {o['price']}" for o in market['outcomes']
+                ])
+            elif market['key'] == "totals":
+                total_line = " | ".join([
+                    f"{o['name']} {o.get('point', '')} @ {o['price']}" for o in market['outcomes']
+                ])
+
+    def format_best_bet_line(label, bet):
+        if not bet:
+            return f"❌ *Best Bet {label}:* None found"
+        outcome = bet['outcome']
+        team = outcome['name']
+        odds = outcome['price']
+        point = outcome.get('point')
+        win_prob = bet['win_prob'] * 100
+        implied_prob = 100 / (100 + abs(odds)) if odds > 0 else abs(odds) / (100 + abs(odds))
+        implied_prob *= 100
+        diff = win_prob - implied_prob
+        point_str = f" {point:+}" if point is not None else ""
+        return (
+            f"✅ *Best Bet {label}:* {team}{point_str} @ {odds} "
+            f"(Win Prob {win_prob:.1f}% vs Implied {implied_prob:.2f}% | Diff {diff:.2f}%)"
+        )
+
+    return (
+        f"🏟️ *{away} vs {home}*\n"
+        f"📅 {formatted_time} ET\n"
+        f"🏆 *ML:* {ml_line}\n"
+        f"📏 *Spread:* {spread_line}\n"
+        f"📊 *Total:* {total_line}\n\n"
+        f"{format_best_bet_line('Moneyline', best_bets.get('h2h'))}\n"
+        f"{format_best_bet_line('Spread', best_bets.get('spreads'))}\n"
+        f"{format_best_bet_line('Total', best_bets.get('totals'))}"
+    )
+
 def main():
     sent_any = False
     for sport in SPORTS:
@@ -111,35 +163,39 @@ def main():
         filtered_games = filter_today_games(games)
 
         for game in filtered_games:
-            for bookmaker in game.get('bookmakers', []):
-                for market in bookmaker.get('markets', []):
-                    market_key = market['key']
-                    best_outcome = None
-                    best_ev = -999
+    best_bets_by_market = {"h2h": None, "spreads": None, "totals": None}
 
-                    for outcome in market.get('outcomes', []):
-                        odds = outcome.get('price')
-                        if odds is None:
-                            continue
+    for bookmaker in game.get('bookmakers', []):
+        for market in bookmaker.get('markets', []):
+            market_key = market['key']
+            best_ev = -999
+            best_outcome = None
 
-                        # Placeholder win probability model
-                        win_prob = 0.5
-                        ev = calculate_ev(odds, win_prob)
-                        if ev > best_ev:
-                            best_ev = ev
-                            best_outcome = outcome
+            for outcome in market.get('outcomes', []):
+                odds = outcome.get('price')
+                if odds is None:
+                    continue
 
-                    if best_outcome and 3.0 <= best_ev <= 13.0:
-                        message = format_message(
-                            game,
-                            market_key,
-                            best_outcome,
-                            best_outcome['price'],
-                            best_ev,
-                            game['commence_time']
-                        )
-                        send_telegram_message(message)
-                        sent_any = True
+                win_prob = 0.5  # Placeholder win probability (you can upgrade this later)
+                ev = calculate_ev(odds, win_prob)
+
+                if ev > best_ev:
+                    best_ev = ev
+                    best_outcome = outcome
+
+            # Filter out unrealistic high-EV lines
+            if best_outcome and best_ev <= 13.0:  # <= 13% EV max
+                best_bets_by_market[market_key] = {
+                    "outcome": best_outcome,
+                    "win_prob": win_prob,
+                    "ev": best_ev
+                }
+
+    # Only send message if we have at least one solid bet
+    if any(best_bets_by_market.values()):
+        summary_msg = format_game_summary_with_best_bets(game, best_bets_by_market)
+        send_telegram_message(summary_msg)
+        sent_any = True
 
     if not sent_any:
         print("✅ Script ran but no value bets were found.")
