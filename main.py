@@ -162,8 +162,8 @@ def main():
         games = fetch_odds_for_sport(sport)
         filtered_games = filter_today_games(games)
 
-         for game in filtered_games:
-             best_bets_by_market = {"h2h": None, "spreads": None, "totals": None}
+        for game in filtered_games:
+            best_bets_by_market = {"h2h": None, "spreads": None, "totals": None}
 
             for bookmaker in game.get('bookmakers', []):
                 for market in bookmaker.get('markets', []):
