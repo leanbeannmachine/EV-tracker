@@ -174,21 +174,30 @@ def main():
         print("Fetch error:", e)
         return
 
-    team_ids = get_mlb_team_ids()  # ✅ Fetch team IDs once
+    team_ids = get_mlb_team_ids()  # ✅ Fetch MLB team IDs once
+
+    today = datetime.now(TIMEZONE).date()  # ✅ Get today's date in Eastern Time
 
     for g in games:
         home = g["home_team"]
         away = g["away_team"]
 
-        # ✅ Filter: only include games between valid MLB teams
+        # ✅ Filter: only valid MLB teams
         if home not in team_ids or away not in team_ids:
             continue
 
-        # ✅ Filter: only today's games
-        if fmt_time(g["commence_time"]).split(",")[0] == datetime.now(TIMEZONE).strftime("%b %d"):
-            send_alert(g)
+        # ✅ Filter: only games scheduled for today (Eastern Time)
+        try:
+            game_time = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00")).astimezone(TIMEZONE)
+        except Exception as e:
+            print(f"Time parse error for {away} vs {home}:", e)
+            continue
 
-    time.sleep(2)
+        if game_time.date() != today:
+            continue
+
+        send_alert(g)
+        time.sleep(2)
 
 if __name__ == "__main__":
     main()
