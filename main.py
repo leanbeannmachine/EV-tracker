@@ -68,13 +68,26 @@ def send_alert(game):
 
     # collect best value per market
     best = {"h2h": None, "spreads": None, "totals": None}
+    ml_odds_set = set()
+    spread_odds_set = set()
+    total_odds_set = set()
+
     for bm in game["bookmakers"]:
         for m in bm["markets"]:
             key = m["key"]
             for out in m["outcomes"]:
                 team = out["name"]
                 odds = out["price"]
-                # placeholder model_prob: 0.55 for ML, 0.53 for spreads, 0.58 for totals
+
+                # Collect odds for dupe detection
+                if key == "h2h":
+                    ml_odds_set.add(odds)
+                elif key == "spreads":
+                    spread_odds_set.add(odds)
+                elif key == "totals":
+                    total_odds_set.add(odds)
+
+                # placeholder model_prob
                 model_prob = {"h2h":0.55, "spreads":0.53, "totals":0.58}[key]
                 ev, imp, edge = ev_and_edge(model_prob, odds)
                 label = ev_label(ev)
@@ -89,6 +102,17 @@ def send_alert(game):
                         "edge": edge,
                         "label": label
                     }
+
+    # ❌ Filter out games with identical odds
+    if len(ml_odds_set) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical ML odds: {ml_odds_set}")
+        return
+    if len(spread_odds_set) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical SPREAD odds: {spread_odds_set}")
+        return
+    if len(total_odds_set) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical TOTAL odds: {total_odds_set}")
+        return
 
     # if none qualifies, skip
     if not any(best.values()):
