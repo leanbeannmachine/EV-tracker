@@ -66,26 +66,28 @@ def send_alert(game):
     away = game["away_team"]
     when = fmt_time(game["commence_time"])
 
+    # store odds for comparison
+    ml_odds = {}
+    spread_odds = {}
+    total_odds = {}
+
     # collect best value per market
     best = {"h2h": None, "spreads": None, "totals": None}
-    ml_odds_set = set()
-    spread_odds_set = set()
-    total_odds_set = set()
-
     for bm in game["bookmakers"]:
         for m in bm["markets"]:
             key = m["key"]
             for out in m["outcomes"]:
                 team = out["name"]
                 odds = out["price"]
+                point = out.get("point", "")
 
-                # Collect odds for dupe detection
+                # capture individual odds for home/away comparisons
                 if key == "h2h":
-                    ml_odds_set.add(odds)
+                    ml_odds[team] = odds
                 elif key == "spreads":
-                    spread_odds_set.add(odds)
+                    spread_odds[f"{team} {point}"] = odds
                 elif key == "totals":
-                    total_odds_set.add(odds)
+                    total_odds[f"{team} {point}"] = odds
 
                 # placeholder model_prob
                 model_prob = {"h2h":0.55, "spreads":0.53, "totals":0.58}[key]
@@ -94,7 +96,7 @@ def send_alert(game):
                 if label and (best[key] is None or ev > best[key]["ev"]):
                     best[key] = {
                         "team": team,
-                        "point": out.get("point", ""),
+                        "point": point,
                         "odds": odds,
                         "ev": ev,
                         "imp": imp,
@@ -103,26 +105,30 @@ def send_alert(game):
                         "label": label
                     }
 
-    # ❌ Filter out games with identical odds
-    if len(ml_odds_set) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical ML odds: {ml_odds_set}")
+    # 💣 BLOCK: if moneyline odds for both teams are equal → skip!
+    if "h2h" in best and len(set(ml_odds.values())) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical moneyline odds for both teams: {list(ml_odds.values())[0]}")
         return
-    if len(spread_odds_set) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical SPREAD odds: {spread_odds_set}")
+    if "spreads" in best and len(set(spread_odds.values())) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical spread odds: {list(spread_odds.values())[0]}")
         return
-    if len(total_odds_set) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical TOTAL odds: {total_odds_set}")
+    if "totals" in best and len(set(total_odds.values())) == 1:
+        print(f"⚠️ Skipping {away} vs {home} — identical total odds: {list(total_odds.values())[0]}")
         return
 
     # if none qualifies, skip
     if not any(best.values()):
         return
 
+    # ✅ Display actual ML odds for both teams
+    away_ml_odds = format_american(ml_odds.get(away, "N/A"))
+    home_ml_odds = format_american(ml_odds.get(home, "N/A"))
+
     # header
     header = (
         f"🏟️ {away} vs {home}\n"
         f"📅 {when}\n"
-        f"🏆 ML: {away}: {format_american(best['h2h']['odds'])} | {home}: {format_american(best['h2h']['odds'])}\n"
+        f"🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}\n"
         f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
         f"📊 Total: {best['totals']['point']} — Over @ {format_american(best['totals']['odds'])}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -147,7 +153,7 @@ def send_alert(game):
     msg = header + "\n".join(sections)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode=telegram.ParseMode.MARKDOWN)
-
+    
 # ── MAIN ──
 def main():
     try:
