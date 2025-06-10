@@ -1,153 +1,141 @@
 import requests
-from datetime import datetime
+import datetime
 import pytz
 import telegram
 
-API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
-TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-TELEGRAM_CHAT_ID = "964091254"
+# 🔐 User credentials & config
+ODDS_API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"  # Replace with your working token
+TELEGRAM_CHAT_ID = "964091254"      # Keep as-is if unchanged
 
-BOOKMAKERS = ["pinnacle", "betonlineag"]
-SPORTS = ["baseball_mlb", "soccer_epl", "soccer_uefa_champs_league", "soccer_usa_mls", "soccer_spain_la_liga", "soccer_italy_serie_a", "soccer_germany_bundesliga", "soccer_france_ligue_one", "soccer_brazil_campeonato", "soccer_mexico_liga_mx", "soccer_portugal_primeira_liga", "soccer_netherlands_eredivisie"]
+# 📈 EV threshold
+MIN_EV_THRESHOLD = 0.01  # 1%+ EV required
 
-CDT = pytz.timezone('America/Chicago')
+# 🕒 Timezone
+CDT = pytz.timezone("America/Chicago")
 
+# 🏟️ Supported sports
+SPORTS = [
+    "baseball_mlb",
+    "soccer_epl",
+    "soccer_uefa_champs_league",
+    "soccer_spain_la_liga",
+    "soccer_germany_bundesliga",
+    "soccer_italy_serie_a",
+    "soccer_france_ligue_one",
+    "soccer_netherlands_eredivisie",
+    "soccer_mexico_liga_mx",
+    "soccer_usa_mls",
+]
 
-def fetch_odds_for_sport(sport_key):
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
-    params = {
-        "apiKey": API_KEY,
-        "regions": "us",
-        "markets": "h2h,spreads,totals",
-        "oddsFormat": "american",
-        "bookmakers": ",".join(BOOKMAKERS)
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        print(f"Error fetching odds for {sport_key}: {e}")
-        return []
+BOOKMAKERS = "pinnacle,betonlineag"
+MARKETS = "h2h,spreads,totals"
 
-def implied_probability(odds):
-    if odds > 0:
-        return 100 / (odds + 100)
-    else:
-        return abs(odds) / (abs(odds) + 100)
-
-def estimated_model_probability(odds, team_name):
-    base = implied_probability(odds)
-    form_boost = 0.06  # Simulated mild form tilt
-    return max(0.01, min(0.99, base + form_boost))
-
+# 💰 Basic EV model (replace with enhanced logic later)
 def calculate_ev(odds, model_prob):
-    payout = odds if odds > 0 else 10000 / abs(odds)
-    ev = (model_prob * payout) - ((1 - model_prob) * 100)
-    return round(ev / 100, 4)
-
-def get_ev_label(ev):
-    if ev >= 0.05:
-        return "🟢 BEST VALUE"
-    elif ev >= 0.015:
-        return "🟡 GOOD VALUE"
+    if odds > 0:
+        implied_prob = 100 / (odds + 100)
     else:
-        return None
+        implied_prob = -odds / (-odds + 100)
+    edge = model_prob - implied_prob
+    ev = (odds / 100 if odds > 0 else 100 / -odds) * model_prob - (1 - model_prob)
+    return implied_prob, edge, ev
 
-def is_today_game(commence_time):
-    game_time = datetime.fromisoformat(commence_time.replace('Z', '+00:00')).astimezone(CDT)
-    now = datetime.now(CDT)
-    return game_time.date() == now.date()
+# 🧠 Simulated model probabilities for testing (replace with real model later)
+def get_model_probability(outcome_name):
+    simulated_probs = {
+        "home": 0.58,
+        "away": 0.54,
+        "draw": 0.32,
+        "over": 0.57,
+        "under": 0.56,
+        "spread_home": 0.59,
+        "spread_away": 0.55,
+    }
+    return simulated_probs.get(outcome_name, 0.50)
 
-def build_summary_message(game, bets):
-    home = game.get("home_team", "")
-    away = game.get("away_team", "")
-    time_str = datetime.fromisoformat(game["commence_time"].replace('Z', '+00:00')).astimezone(CDT).strftime("%b %d, %I:%M %p CDT")
+# 📬 Format emoji for EV
+def format_ev_emoji(ev):
+    if ev >= 0.10:
+        return f"+{ev*100:.1f}% 🟢 BEST VALUE"
+    elif ev >= 0.03:
+        return f"+{ev*100:.1f}% 🟡 GOOD VALUE"
+    return None
 
-    moneyline_lines, spread_lines, total_lines = [], [], []
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market["key"] == "h2h":
-                for o in market["outcomes"]:
-                    moneyline_lines.append(f"{o['name']}: {o['price']:+}")
-            elif market["key"] == "spreads":
-                for o in market["outcomes"]:
-                    pt = o.get("point", 0)
-                    spread_lines.append(f"{o['name']} {pt:+.1f} @ {o['price']:+}")
-            elif market["key"] == "totals":
-                for o in market["outcomes"]:
-                    pt = o.get("point", 0)
-                    total_lines.append(f"Total {pt:.1f} @ {o['price']:+}")
-
-    summary = (
-        f"🏟️ {away} vs {home}\n"
-        f"📅 {time_str}\n"
-        f"🏆 ML: {' | '.join(moneyline_lines)}\n"
-        f"📏 Spread: {' | '.join(spread_lines)}\n"
-        f"📊 Total: {' | '.join(total_lines)}\n\n"
-    )
-
-    for bet in bets:
-        emoji = "⚾" if "mlb" in game["sport_key"] else "⚽"
-        ev_label = get_ev_label(bet['ev'])
-        if not ev_label:
-            continue
-        summary += (
-            f"📊 *{bet['market'].upper()} BET*\n\n"
-            f"🔥 Pick: {bet['team']}\n"
-            f"💵 Odds: {bet['odds']:+}\n"
-            f"📈 Expected Value: +{bet['ev']*100:.1f}% {ev_label}\n"
-            f"🧮 Implied Prob: {bet['implied_prob']*100:.1f}%\n"
-            f"🧠 Model Prob: {bet['model_prob']*100:.1f}%\n"
-            f"🔍 Edge: +{bet['edge']:.2f}%\n"
-            f"{emoji} ——————\n\n"
-        )
-    return summary
-
-def find_value_bets(game):
-    value_bets = []
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            key = market["key"]
-            for outcome in market["outcomes"]:
-                odds = outcome.get("price")
-                team = outcome.get("name")
-                if odds is None or team is None:
-                    continue
-                implied = implied_probability(odds)
-                model = estimated_model_probability(odds, team)
-                edge = round((model - implied) * 100, 2)
-                ev = calculate_ev(odds, model)
-                label = get_ev_label(ev)
-                if label:
-                    value_bets.append({
-                        "market": key,
-                        "team": f"{team} {outcome.get('point', '')}".strip(),
-                        "odds": odds,
-                        "implied_prob": implied,
-                        "model_prob": model,
-                        "edge": edge,
-                        "ev": ev
-                    })
-    return value_bets
-
-def send_to_telegram(message):
+# 📲 Send alert
+def send_telegram_alert(message):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
-    except Exception as e:
-        print(f"Telegram error: {e}")
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.ParseMode.HTML)
+    except telegram.error.Unauthorized:
+        print("Telegram error: Unauthorized")
 
-def main():
+# 🚀 Main run function
+def run():
     for sport in SPORTS:
-        games = fetch_odds_for_sport(sport)
-        for game in games:
-            if not is_today_game(game["commence_time"]):
-                continue
-            value_bets = find_value_bets(game)
-            if value_bets:
-                msg = build_summary_message(game, value_bets)
-                send_to_telegram(msg)
+        url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
+        params = {
+            "apiKey": ODDS_API_KEY,
+            "regions": "us",
+            "markets": MARKETS,
+            "oddsFormat": "american",
+            "bookmakers": BOOKMAKERS
+        }
+
+        try:
+            res = requests.get(url, params=params)
+            res.raise_for_status()
+            games = res.json()
+
+            for game in games:
+                title = f"🏟️ {game['home_team']} vs {game['away_team']}"
+                game_time = datetime.datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(CDT)
+                formatted_time = game_time.strftime("%b %d, %I:%M %p CDT")
+
+                odds_lines = []
+                market_results = []
+
+                for bookmaker in game.get("bookmakers", []):
+                    for market in bookmaker.get("markets", []):
+                        for outcome in market.get("outcomes", []):
+                            label = market["key"]
+                            odds = outcome["price"]
+                            team = outcome["name"]
+
+                            if label == "h2h":
+                                model_prob = get_model_probability("home" if team == game["home_team"] else "away")
+                            elif label == "totals":
+                                model_prob = get_model_probability("over" if "over" in team.lower() else "under")
+                            elif label == "spreads":
+                                model_prob = get_model_probability("spread_home" if team == game["home_team"] else "spread_away")
+                            else:
+                                continue
+
+                            implied_prob, edge, ev = calculate_ev(odds, model_prob)
+                            if ev >= MIN_EV_THRESHOLD:
+                                ev_label = format_ev_emoji(ev)
+                                if not ev_label:
+                                    continue
+
+                                bet_type = label.upper()
+                                pick_line = f"<b>🔥 Pick:</b> {team}"
+                                market_odds = f"<b>💵 Odds:</b> {odds}"
+                                ev_line = f"<b>📈 Expected Value:</b> {ev_label}"
+                                implied = f"<b>🧮 Implied Prob:</b> {implied_prob*100:.1f}%"
+                                model = f"<b>🧠 Model Prob:</b> {model_prob*100:.1f}%"
+                                diff = f"<b>🔍 Edge:</b> {edge*100:.2f}%"
+                                sport_emoji = "⚾" if "mlb" in sport else "⚽"
+
+                                market_results.append(
+                                    f"<b>📊 {bet_type} BET</b>\n\n{pick_line}\n{market_odds}\n{ev_line}\n{implied}\n{model}\n{diff}\n{sport_emoji} ——————"
+                                )
+
+                if market_results:
+                    message = f"{title}\n📅 {formatted_time}\n" + "\n\n" + "\n\n".join(market_results)
+                    send_telegram_alert(message)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching odds for {sport}: {e}")
 
 if __name__ == "__main__":
-    main()
+    run()
