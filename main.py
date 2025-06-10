@@ -4,7 +4,7 @@ import pytz
 import os
 import telegram
 
-API_KEY = '9007d620a2ee59fb441c45ffdf058ea6'
+API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
 TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
