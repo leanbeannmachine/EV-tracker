@@ -6,7 +6,7 @@ from datetime import datetime
 import telegram
 
 # ── CONFIG ──
-API_KEY           = "9007d620a2ee59fb441c45ffdf058ea6"      # OddsAPI key
+API_KEY           = "ff76b566ed33aae7bb6e5e98b58d5405"      # OddsAPI key
 TELEGRAM_TOKEN    = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"  # Telegram bot token
 TELEGRAM_CHAT_ID  = "964091254"    # Telegram chat ID
 SPORT_KEY         = "baseball_mlb"                   # MLB only
