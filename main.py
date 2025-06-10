@@ -25,6 +25,18 @@ def implied_prob(odds):
         return 100 / (odds + 100)
     return -odds / (-odds + 100)
 
+# ── MLB TEAM ID HELPER ──
+def get_mlb_team_ids():
+    import requests
+    try:
+        r = requests.get("https://statsapi.mlb.com/api/v1/teams?sportId=1")
+        r.raise_for_status()
+        data = r.json()
+        return {team["name"]: team["id"] for team in data["teams"]}
+    except Exception as e:
+        print("MLB Team ID fetch error:", e)
+        return {}
+
 def ev_and_edge(model_prob, odds):
     imp = implied_prob(odds)
     edge = model_prob - imp
