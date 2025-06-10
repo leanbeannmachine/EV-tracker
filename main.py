@@ -173,10 +173,21 @@ def main():
     except Exception as e:
         print("Fetch error:", e)
         return
+
+    team_ids = get_mlb_team_ids()  # ✅ Fetch team IDs once
+
     for g in games:
-        # only today's games
+        home = g["home_team"]
+        away = g["away_team"]
+
+        # ✅ Filter: only include games between valid MLB teams
+        if home not in team_ids or away not in team_ids:
+            continue
+
+        # ✅ Filter: only today's games
         if fmt_time(g["commence_time"]).split(",")[0] == datetime.now(TIMEZONE).strftime("%b %d"):
             send_alert(g)
+
     time.sleep(2)
 
 if __name__ == "__main__":
