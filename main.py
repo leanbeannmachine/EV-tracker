@@ -4,9 +4,9 @@ import pytz
 import os
 
 # ✅ Your actual credentials
-ODDS_API_KEY = '7b5d540e73c8790a95b84d3713e1a572'
+ODDS_API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
 TELEGRAM_TOKEN = '7031551190:AAGn-XiQt_XYduf3Pbgl4GzFym-2-YhAG5A'
-TELEGRAM_CHAT_ID = '6212506988'
+TELEGRAM_CHAT_ID = "964091254"
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
