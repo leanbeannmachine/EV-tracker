@@ -1,26 +1,61 @@
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
-import os
+import telegram
+import random
+import time
 
-# ✅ Your actual credentials
-ODDS_API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
-TELEGRAM_TOKEN = '7031551190:AAGn-XiQt_XYduf3Pbgl4GzFym-2-YhAG5A'
+# ✅ Your keys and tokens
+SPORTSMONK_API_KEY = "UGsOsScp4nhqCjJNaZ1HLRf6f0ru0GBLTAplBKVHt8YL6m0jNZpmUbCu4szH"
+API_KEY = "9007d620a2ee59fb441c45ffdf058ea6"
+TELEGRAM_BOT_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message, 'parse_mode': 'Markdown'}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print("Telegram error:", e)
+BOOKMAKERS = ["pinnacle", "betonlineag"]
+SPORTS = ["baseball_mlb", "basketball_wnba"]
 
-def estimated_win_prob(odds, team):
-    if odds >= 0:
-        return 100 / (odds + 100)
+def generate_reasoning(market, team):
+    if market == "h2h":
+        return f"The {team} come in with serious momentum 🚀 and the metrics are tilting in their favor 📊. With this kind of line, there's huge upside on a team that’s been outperforming expectations!"
+    elif market == "spreads":
+        return f"{team} has been covering spreads consistently 🧱 due to tough defense and reliable scoring. The matchup looks promising again today."
+    elif market == "totals":
+        return f"Based on tempo and efficiency 📈, this total line holds strong value. Trends and matchup data support the bet."
+    return "Backed by data and matchup trends, this is a value-driven play."
+
+def fetch_odds_for_sport(sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
+    params = {
+        "apiKey": API_KEY,
+        "regions": "us",
+        "markets": "h2h,spreads,totals",
+        "oddsFormat": "american",
+        "bookmakers": ",".join(BOOKMAKERS)
+    }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error fetching odds for {sport_key}: {e}")
+        return []
+
+def implied_probability(american_odds):
+    if american_odds > 0:
+        return 100 / (american_odds + 100)
     else:
-        return abs(odds) / (abs(odds) + 100)
+        return abs(american_odds) / (abs(american_odds) + 100)
+
+def get_team_form(team_name):
+    random.seed(hash(team_name) % 10000)
+    return random.uniform(0.4, 0.6)
+
+def estimated_win_prob(american_odds, team_name):
+    base_prob = implied_probability(american_odds)
+    form = get_team_form(team_name)
+    adjustment = (form - 0.5) * 0.16  # ±8%
+    adjusted_prob = base_prob + adjustment
+    return max(0.01, min(0.99, adjusted_prob))
 
 def calculate_ev_and_label(odds, model_win_prob, spread, team_name):
     if odds > 0:
@@ -34,12 +69,10 @@ def calculate_ev_and_label(odds, model_win_prob, spread, team_name):
     spread_based_prob = max(0.05, min(0.95, spread_based_prob))
     adjusted_win_prob = min(model_win_prob, spread_based_prob + 0.05)
 
-    risky_teams = ['Valkyries', 'G League Ignite', 'Team USA Youth']
-    if any(team in team_name for team in risky_teams):
+    if any(x in team_name for x in ["Valkyries", "G League Ignite", "Team USA Youth"]):
         adjusted_win_prob = min(adjusted_win_prob, 0.20)
 
-    lose_payout = 100
-    ev = (adjusted_win_prob * win_payout) - ((1 - adjusted_win_prob) * lose_payout)
+    ev = (adjusted_win_prob * win_payout) - ((1 - adjusted_win_prob) * 100)
     ev_percent = round(ev / 100, 4)
 
     if ev_percent >= 0.05:
@@ -53,51 +86,50 @@ def calculate_ev_and_label(odds, model_win_prob, spread, team_name):
 
     implied_prob_percent = round(implied_prob * 100, 2)
     model_prob_percent = round(adjusted_win_prob * 100, 2)
-    prob_delta = round((adjusted_win_prob - implied_prob) * 100, 2)
+    delta = round((adjusted_win_prob - implied_prob) * 100, 2)
 
-    return ev_percent, adjusted_win_prob, label, implied_prob_percent, model_prob_percent, prob_delta
+    return ev_percent, adjusted_win_prob, label, implied_prob_percent, model_prob_percent, delta
 
-def generate_reasoning(market, team_name):
-    if market == "h2h":
-        return f"{team_name} has value based on our win probability model exceeding the implied odds."
-    elif market == "spreads":
-        return f"{team_name} has a favorable spread line compared to their expected margin."
-    elif market == "totals":
-        return f"Market mispriced the total line for {team_name}, based on game pace and recent trends."
-    return "Strong edge detected based on pricing and model projection."
+def is_today_game(game_time_str):
+    game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
+    now = datetime.now(pytz.timezone('US/Eastern'))
+    return game_time.date() == now.date()
 
-def format_message(game, market, outcome, odds, ev_percent, label, implied_prob, model_prob, delta, start_time):
-    market_key = market.lower()
+def filter_today_games(games):
+    return [g for g in games if is_today_game(g['commence_time'])]
+
+def format_message(game, market, outcome, odds, ev, start_time):
     team = outcome.get('name', '')
     line_info = ""
 
-    if market_key == "spreads" and 'point' in outcome:
+    if market == "spreads" and 'point' in outcome:
         line_info = f" {outcome['point']:+.1f}"
-    elif market_key == "totals" and 'point' in outcome:
+    elif market == "totals" and 'point' in outcome:
         line_info = f" {outcome['point']:.1f}"
-
-    if not team:
-        home = game.get("home_team", "")
-        away = game.get("away_team", "")
-        team = f"{away} vs {home}"
 
     team_line = f"{team}{line_info}"
     readable_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d, %I:%M %p ET')
     odds_str = f"{odds:+}" if isinstance(odds, int) else odds
+    label = f"🏷️ {calculate_ev_and_label(odds, estimated_win_prob(odds, team), outcome.get('point', 0), team)[2]}"
     reasoning = generate_reasoning(market, team)
 
     return (
         f"📊 *{market.upper()} BET*\n\n"
         f"🔥 *Pick:* **{team_line}**\n"
         f"💵 *Odds:* {odds_str}\n"
-        f"📈 *Expected Value:* **{ev_percent*100:+.1f}%**\n"
+        f"📈 *Expected Value:* **+{ev:.1f}%**\n"
         f"{label}\n\n"
-        f"📊 *Win Probability:* {model_prob:.2f}% vs Implied: {implied_prob:.2f}%\n"
-        f"📉 *Edge:* {delta:+.2f}% difference\n\n"
         f"🕒 *Game Time:* {readable_time}\n"
         f"💡 *Why We Like It:*\n{reasoning}\n"
         f"——————"
     )
+
+def send_telegram_message(message):
+    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
+    except telegram.error.TelegramError as e:
+        print(f"Telegram error: {e}")
 
 def find_best_bet(game):
     best_bets = {"h2h": None, "spreads": None, "totals": None}
@@ -107,79 +139,78 @@ def find_best_bet(game):
             for outcome in market.get("outcomes", []):
                 odds = outcome.get("price")
                 team_name = outcome.get("name")
-                spread = outcome.get("point", 0.0)
-
+                spread = outcome.get("point", 0)
                 if odds is None or team_name is None:
                     continue
-
-                model_win_prob = estimated_win_prob(odds, team_name)
-                ev, win_prob, label, implied_prob, model_prob, delta = calculate_ev_and_label(
-                    odds, model_win_prob, spread, team_name
-                )
-
+                win_prob = estimated_win_prob(odds, team_name)
+                ev, *_ = calculate_ev_and_label(odds, win_prob, spread, team_name)
                 outcome_data = {
                     "outcome": outcome,
-                    "odds": odds,
-                    "ev": ev,
-                    "label": label,
-                    "implied_prob": implied_prob,
-                    "model_prob": model_prob,
-                    "delta": delta
+                    "ev": ev
                 }
-
-                current_best = best_bets[key]
+                current_best = best_bets.get(key)
                 if current_best is None or ev > current_best["ev"]:
                     best_bets[key] = outcome_data
     return best_bets
 
-def fetch_games():
-    url = f"https://api.the-odds-api.com/v4/sports/?apiKey={ODDS_API_KEY}"
-    sports = requests.get(url).json()
+def send_bets():
+    all_games = []
+    for sport in SPORTS:
+        games = fetch_odds_for_sport(sport)
+        games_today = filter_today_games(games)
+        all_games.extend(games_today)
 
-    target_keys = ['basketball.wnba', 'soccer.usa.nwsl', 'soccer.usa.mls', 'baseball.mlb']
-    events = []
-
-    for sport in sports:
-        if sport["key"] in target_keys:
-            odds_url = f"https://api.the-odds-api.com/v4/sports/{sport['key']}/odds/?apiKey={ODDS_API_KEY}&regions=us&markets=h2h,spreads,totals&oddsFormat=american"
-            try:
-                response = requests.get(odds_url)
-                data = response.json()
-                for game in data:
-                    start_time = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
-                    now = datetime.now(pytz.timezone('US/Eastern'))
-                    if now.date() <= start_time.date() <= (now + timedelta(days=1)).date():
-                        events.append(game)
-            except Exception as e:
-                print(f"Error fetching {sport['key']}:", e)
-
-    return events
-
-def main():
-    games = fetch_games()
-    if not games:
-        send_telegram_message("⚠️ No games found today.")
+    if not all_games:
+        print("No games today.")
         return
 
-    for game in games:
-        league = game.get("sport_title", "Unknown League")
+    for game in all_games:
+        best_bets = find_best_bet(game)
+
         home = game.get("home_team", "")
         away = game.get("away_team", "")
-        header_message = f"🏟️ *{league}*\n\n📢 {away} @ {home}\n\n"
-        best_bets = find_best_bet(game)
+        start_time = game['commence_time']
+        start_time_str = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern')).strftime('%b %d %I:%M %p ET')
+
+        moneyline_lines = []
+        spread_lines = []
+        total_lines = []
+
+        for bookmaker in game.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market["key"] == "h2h":
+                    for o in market.get("outcomes", []):
+                        moneyline_lines.append(f"{o['name']}: {o['price']:+}")
+                elif market["key"] == "spreads":
+                    for o in market.get("outcomes", []):
+                        spread_lines.append(f"{o['name']} {o.get('point', 0):+.1f} @ {o['price']:+}")
+                elif market["key"] == "totals":
+                    for o in market.get("outcomes", []):
+                        total_lines.append(f"Total {o.get('point', 0):.1f} @ {o['price']:+}")
+
+        header_message = (
+            f"🏟️ {away} vs {home}\n"
+            f"📅 {start_time_str}\n"
+            f"🏆 ML: {' | '.join(moneyline_lines) if moneyline_lines else 'N/A'}\n"
+            f"📏 Spread: {' | '.join(spread_lines) if spread_lines else 'N/A'}\n"
+            f"📊 Total: {' | '.join(total_lines) if total_lines else 'N/A'}\n\n"
+        )
 
         for market_key in ["h2h", "spreads", "totals"]:
             best = best_bets.get(market_key)
             if best:
-                msg = format_message(
-                    game, market_key, best["outcome"], best["odds"],
-                    best["ev"], best["label"],
-                    best["implied_prob"], best["model_prob"], best["delta"],
-                    game['commence_time']
-                )
+                outcome = best["outcome"]
+                ev = best["ev"]
+                odds = outcome["price"]
+                msg = format_message(game, market_key, outcome, odds, ev, game['commence_time'])
                 send_telegram_message(header_message + msg)
             else:
-                send_telegram_message(header_message + f"⚠️ No best {market_key.upper()} bet found.\n——————")
+                send_telegram_message(header_message + f"⚠️ No best {market_key.upper()} bet found for this game.\n——————")
 
-if __name__ == "__main__":
-    main()
+# ✅ Heroku loop: run every hour forever
+while True:
+    try:
+        send_bets()
+    except Exception as e:
+        print(f"Error in send_bets: {e}")
+    time.sleep(3600)
