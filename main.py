@@ -16,7 +16,7 @@ REGION            = "us"
 ODDS_FORMAT       = "american"
 EV_THRESHOLD_GOOD = 5.0   # minimum EV% for GOOD VALUE
 EV_THRESHOLD_BEST = 7.0   # minimum EV% for BEST VALUE
-TIMEZONE          = pytz.timezone("America/Chicago")
+TIMEZONE          = pytz.timezone("America/New_York")
 
 # ── HELPERS ──
 def implied_prob(odds):
