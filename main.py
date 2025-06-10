@@ -38,23 +38,47 @@ def fetch_odds_for_sport(sport_key):
         print(f"Error fetching odds for {sport_key}: {e}")
         return []
 
-def calculate_ev(american_odds, win_prob):
-    if american_odds > 0:
-        decimal_odds = 1 + (american_odds / 100)
+def calculate_ev_and_label(odds, model_win_prob, spread, team_name):
+    # Convert American odds to decimal win payout
+    if odds > 0:
+        implied_prob = 100 / (odds + 100)
+        win_payout = odds
     else:
-        decimal_odds = 1 + (100 / abs(american_odds))
-    ev = (decimal_odds * win_prob) - 1
-    return ev * 100
+        implied_prob = abs(odds) / (abs(odds) + 100)
+        win_payout = 10000 / abs(odds)
 
-def format_ev_label(ev):
-    if ev > 5:
-        return "🟢 *BEST VALUE*"
-    elif ev > 2:
-        return "🟡 *GOOD VALUE*"
-    elif ev > 0:
-        return "🟠 *SLIGHT EDGE*"
+    # Spread-based win probability (acts as a sanity check)
+    spread_based_prob = 0.5 - (spread / 22.0)
+    spread_based_prob = max(0.05, min(0.95, spread_based_prob))
+
+    # Adjust for risk and cap overconfidence
+    adjusted_win_prob = min(model_win_prob, spread_based_prob + 0.05)
+
+    risky_teams = ['Valkyries', 'G League Ignite', 'Team USA Youth']
+    if any(team in team_name for team in risky_teams):
+        adjusted_win_prob = min(adjusted_win_prob, 0.20)
+
+    # Expected Value
+    lose_payout = 100
+    ev = (adjusted_win_prob * win_payout) - ((1 - adjusted_win_prob) * lose_payout)
+    ev_percent = round(ev / 100, 4)
+
+    # Label
+    if ev_percent >= 0.05:
+        label = "🟢 BEST VALUE"
+    elif ev_percent >= 0.015:
+        label = "🟡 GOOD VALUE"
+    elif ev_percent > 0:
+        label = "🟠 SLIGHT EDGE"
     else:
-        return "🔴 *NO EDGE*"
+        label = "🔴 NO EDGE"
+
+    # Implied vs model win probability delta
+    delta = round((adjusted_win_prob - implied_prob) * 100, 2)  # In percent
+    implied_prob_percent = round(implied_prob * 100, 2)
+    model_prob_percent = round(adjusted_win_prob * 100, 2)
+
+    return ev_percent, adjusted_win_prob, label, implied_prob_percent, model_prob_percent, delta
 
 def is_today_game(game_time_str):
     game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00')).astimezone(pytz.timezone('US/Eastern'))
