@@ -141,10 +141,14 @@ def send_alert(game):
         f"🏟️ {away} vs {home}\n"
         f"📅 {when}\n"
         f"🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}\n"
-        f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
-        f"📊 Total: {best['totals']['point']} — Over @ {format_american(best['totals']['odds'])}\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
     )
+
+    if best["spreads"]:
+        header += f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
+    if best["totals"]:
+        header += f"📊 Total: {best['totals']['point']} — Over @ {format_american(best['totals']['odds'])}\n"
+
+    header += "\n━━━━━━━━━━━━━━━━━━\n"
 
     # individual sections
     sections = []
