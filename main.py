@@ -99,7 +99,7 @@ def send_alert(game):
                 elif key == "spreads":
                     spread_odds[f"{team} {point}"] = odds
                 elif key == "totals":
-                    total_odds[f"{team} {point}"] = odds
+                    total_odds[f"{out['name']} {point}"] = odds
 
                 # placeholder model_prob
                 model_prob = {"h2h":0.55, "spreads":0.53, "totals":0.58}[key]
@@ -146,7 +146,7 @@ def send_alert(game):
     if best["spreads"]:
         header += f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
     if best["totals"]:
-        header += f"📊 Total: {best['totals']['point']} — Over @ {format_american(best['totals']['odds'])}\n"
+        header += f"📊 Total: {best['totals']['point']} — {best['totals']['team']} @ {format_american(best['totals']['odds'])}\n"
 
     header += "\n━━━━━━━━━━━━━━━━━━\n"
 
