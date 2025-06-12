@@ -126,32 +126,35 @@ def send_alert(game):
         best = {"h2h": None, "spreads": None, "totals": None}
         for bm in game["bookmakers"]:
             for m in bm["markets"]:
-                key = m["key"]
-                for out in m["outcomes"]:
-                    team = out["name"]
-                    odds = out["price"]
-                    point = out.get("point", "")
+    key = m["key"]
+    if key not in ["h2h", "spreads", "totals"]:
+        continue  # Ignore unsupported markets
 
-                    if key == "h2h":
-                        ml_odds[team] = odds
-                    elif key == "spreads":
-                        spread_odds[f"{team} {point}"] = odds
-                    elif key == "totals":
-                        total_odds[f"{team} {point}"] = odds
+    for out in m["outcomes"]:
+        team = out["name"]
+        odds = out["price"]
+        point = out.get("point", "")
 
-                    model_prob = {"h2h": 0.55, "spreads": 0.53, "totals": 0.58}[key]
-                    ev, imp, edge = ev_and_edge(model_prob, odds)
-                    label = ev_label(ev)
-                    if label and (best[key] is None or ev > best[key]["ev"]):
-                        best[key] = {
-                            "team": team,
-                            "point": point,
-                            "odds": odds,
-                            "ev": ev,
-                            "imp_prob": imp,
-                            "model_prob": round(model_prob * 100, 1),
-                            "vig": calculate_vig_percent(odds, odds),  # temp default, gets replaced below
-                        }
+        if key == "h2h":
+            ml_odds[team] = odds
+        elif key == "spreads":
+            spread_odds[f"{team} {point}"] = odds
+        elif key == "totals":
+            total_odds[f"{team} {point}"] = odds
+
+        model_prob = {"h2h": 0.55, "spreads": 0.53, "totals": 0.58}[key]
+        ev, imp, edge = ev_and_edge(model_prob, odds)
+        label = ev_label(ev)
+        if label and (best[key] is None or ev > best[key]["ev"]):
+            best[key] = {
+                "team": team,
+                "point": point,
+                "odds": odds,
+                "ev": ev,
+                "imp_prob": imp,
+                "model_prob": round(model_prob * 100, 1),
+                "vig": calculate_vig_percent(odds, odds),
+            }
 
         if not any(best.values()):
             return
