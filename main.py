@@ -5,6 +5,23 @@ import pytz
 from datetime import datetime
 import telegram
 
+def send_telegram_alert(message):
+    TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+    TELEGRAM_CHAT_ID = "964091254"
+    
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload)
+        if response.status_code != 200:
+            print("Failed to send Telegram message:", response.text)
+    except Exception as e:
+        print("Telegram error:", e)
+
 def calculate_vig_percent(odds1, odds2):
     def implied_prob(odds):
         return abs(odds) / (abs(odds) + 100) if odds < 0 else 100 / (odds + 100)
