@@ -6,8 +6,8 @@ from datetime import datetime
 import telegram
 
 def send_telegram_alert(message):
-    TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-    TELEGRAM_CHAT_ID = "964091254"
+    bot_token = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+    chat_id = "964091254"
     
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
