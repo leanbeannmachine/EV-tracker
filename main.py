@@ -98,102 +98,112 @@ def fetch_odds():
     return r.json()
 
 # ── BUILD & SEND ALERT ──
+def format_bet_section(title, pick, odds, ev, imp_prob, model_prob, vig):
+    ev_display = f"{ev:+.1f}%"
+    edge_display = f"{(model_prob - imp_prob):+.1f}%"
+    vig_display = f"{vig:.2f}%"
+    
+    return f"""📊 {title.upper()} BET
+🔥 Pick: {pick}
+💵 Odds: {format_american(odds)}
+📈 EV: {ev_display} 💎🟢 BEST VALUE
+🧮 Implied Prob: {imp_prob:.1f}%
+🧠 Model Prob: {model_prob:.1f}%
+🔍 Edge: {edge_display}
+⚖️ Vig: {vig_display}
+⚾ ——————"""
+
 def send_alert(game):
-    home = game["home_team"]
-    away = game["away_team"]
-    when = fmt_time(game["commence_time"])
+    try:
+        home = game["home_team"]
+        away = game["away_team"]
+        when = fmt_time(game["commence_time"])
 
-    # store odds for comparison
-    ml_odds = {}
-    spread_odds = {}
-    total_odds = {}
+        ml_odds = {}
+        spread_odds = {}
+        total_odds = {}
 
-    # collect best value per market
-    best = {"h2h": None, "spreads": None, "totals": None}
-    for bm in game["bookmakers"]:
-        for m in bm["markets"]:
-            key = m["key"]
-            for out in m["outcomes"]:
-                team = out["name"]
-                odds = out["price"]
-                point = out.get("point", "")
+        best = {"h2h": None, "spreads": None, "totals": None}
+        for bm in game["bookmakers"]:
+            for m in bm["markets"]:
+                key = m["key"]
+                for out in m["outcomes"]:
+                    team = out["name"]
+                    odds = out["price"]
+                    point = out.get("point", "")
 
-                # capture individual odds for home/away comparisons
-                if key == "h2h":
-                    ml_odds[team] = odds
-                elif key == "spreads":
-                    spread_odds[f"{team} {point}"] = odds
-                elif key == "totals":
-                    total_odds[f"{out['name']} {point}"] = odds
+                    if key == "h2h":
+                        ml_odds[team] = odds
+                    elif key == "spreads":
+                        spread_odds[f"{team} {point}"] = odds
+                    elif key == "totals":
+                        total_odds[f"{team} {point}"] = odds
 
-                # placeholder model_prob
-                model_prob = {"h2h":0.55, "spreads":0.53, "totals":0.58}[key]
-                ev, imp, edge = ev_and_edge(model_prob, odds)
-                label = ev_label(ev)
-                if label and (best[key] is None or ev > best[key]["ev"]):
-                    best[key] = {
-                        "team": team,
-                        "point": point,
-                        "odds": odds,
-                        "ev": ev,
-                        "imp": imp,
-                        "mod": round(model_prob*100,1),
-                        "edge": edge,
-                        "label": label
-                    }
+                    model_prob = {"h2h": 0.55, "spreads": 0.53, "totals": 0.58}[key]
+                    ev, imp, edge = ev_and_edge(model_prob, odds)
+                    label = ev_label(ev)
+                    if label and (best[key] is None or ev > best[key]["ev"]):
+                        best[key] = {
+                            "team": team,
+                            "point": point,
+                            "odds": odds,
+                            "ev": ev,
+                            "imp_prob": imp,
+                            "model_prob": round(model_prob * 100, 1),
+                            "vig": calculate_vig_percent(odds, odds),  # temp default, gets replaced below
+                        }
 
-    # 💣 BLOCK: if moneyline odds for both teams are equal → skip!
-    if "h2h" in best and len(set(ml_odds.values())) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical moneyline odds for both teams: {list(ml_odds.values())[0]}")
-        return
-    if "spreads" in best and len(set(spread_odds.values())) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical spread odds: {list(spread_odds.values())[0]}")
-        return
-    if "totals" in best and len(set(total_odds.values())) == 1:
-        print(f"⚠️ Skipping {away} vs {home} — identical total odds: {list(total_odds.values())[0]}")
-        return
+        if not any(best.values()):
+            return
 
-    # if none qualifies, skip
-    if not any(best.values()):
-        return
+        away_ml_odds = format_american(ml_odds.get(away, "N/A"))
+        home_ml_odds = format_american(ml_odds.get(home, "N/A"))
 
-    # ✅ Display actual ML odds for both teams
-    away_ml_odds = format_american(ml_odds.get(away, "N/A"))
-    home_ml_odds = format_american(ml_odds.get(home, "N/A"))
+        header = (
+            f"🏟️ {away} vs {home}\n"
+            f"📅 {when}\n"
+            f"🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}\n"
+        )
 
-    # header
-    header = (
-        f"🏟️ {away} vs {home}\n"
-        f"📅 {when}\n"
-        f"🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}\n"
-    )
+        if best["spreads"]:
+            header += f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
+        if best["totals"]:
+            header += f"📊 Total: {best['totals']['point']} — {best['totals']['team']} @ {format_american(best['totals']['odds'])}\n"
 
-    if best["spreads"]:
-        header += f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
-    if best["totals"]:
-        header += f"📊 Total: {best['totals']['point']} — {best['totals']['team']} @ {format_american(best['totals']['odds'])}\n"
+        header += "\n━━━━━━━━━━━━━━━━━━\n"
 
-    header += "\n━━━━━━━━━━━━━━━━━━\n"
-
-    # individual sections
-    sections = []
-    for mk, data in [("MONEYLINE", best["h2h"]), ("SPREAD", best["spreads"]), ("TOTALS", best["totals"])]:
-        if data:
-            pick = data["team"] + (f" {data['point']:+}" if data["point"]!="" else "")
-            sections.append(
-                f"📊 {mk} BET\n"
-                f"🔥 Pick: {pick}\n"
-                f"💵 Odds: {format_american(data['odds'])}\n"
-                f"📈 EV: +{data['ev']}% {data['label']}\n"
-                f"🧮 Implied Prob: {data['imp']}%\n"
-                f"🧠 Model Prob: {data['mod']}%\n"
-                f"🔍 Edge: +{data['edge']}%\n"
-                "⚾ ——————"
+        sections = []
+        if best["h2h"]:
+            best["h2h"]["vig"] = calculate_vig_percent(
+                ml_odds.get(home, -110), ml_odds.get(away, -110)
             )
+            pick = best["h2h"]["team"]
+            sections.append(format_bet_section("moneyline", pick, **best["h2h"]))
 
-    msg = header + "\n".join(sections)
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg, parse_mode=telegram.ParseMode.MARKDOWN)
+        if best["spreads"]:
+            key = best["spreads"]["team"] + " " + str(best["spreads"]["point"])
+            opp = next((v for k, v in spread_odds.items() if k != key), -110)
+            best["spreads"]["vig"] = calculate_vig_percent(
+                best["spreads"]["odds"], opp
+            )
+            pick = best["spreads"]["team"] + " " + str(best["spreads"]["point"])
+            sections.append(format_bet_section("spread", pick, **best["spreads"]))
+
+        if best["totals"]:
+            key = best["totals"]["team"] + " " + str(best["totals"]["point"])
+            opp = next((v for k, v in total_odds.items() if k != key), -110)
+            best["totals"]["vig"] = calculate_vig_percent(
+                best["totals"]["odds"], opp
+            )
+            pick = best["totals"]["team"] + " " + str(best["totals"]["point"])
+            sections.append(format_bet_section("totals", pick, **best["totals"]))
+
+        msg = header + "\n".join(sections)
+        send_telegram_alert(msg)
+        time.sleep(2)
+
+    except Exception as e:
+        print(f"Error processing game: {away} vs {home} — {e}")
     
 # ── MAIN ──
 def main():
