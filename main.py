@@ -113,100 +113,72 @@ def format_bet_section(title, pick, odds, ev, imp_prob, model_prob, vig):
 ⚖️ Vig: {vig_display}
 ⚾ ——————"""
 
-def send_alert(game):
+def send_alert(game, best):
     try:
         home = game["home_team"]
         away = game["away_team"]
-        when = fmt_time(game["commence_time"])
+        game_time = datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(TIMEZONE)
+        game_time_str = game_time.strftime("%b %d, %I:%M %p CDT")
 
-        ml_odds = {}
-        spread_odds = {}
-        total_odds = {}
+        # Extract best bets by category
+        ml = best.get("h2h")
+        spread = best.get("spreads")
+        total = best.get("totals")
 
-        best = {"h2h": None, "spreads": None, "totals": None}
-        for bm in game["bookmakers"]:
-            for m in bm["markets"]:
-    key = m["key"]
-    if key not in ["h2h", "spreads", "totals"]:
-        continue  # Ignore unsupported markets
+        # Format odds for header
+        away_ml_odds = format_american(ml["odds"]) if ml and ml["team"] == away else "N/A"
+        home_ml_odds = format_american(ml["odds"]) if ml and ml["team"] == home else "N/A"
 
-    for out in m["outcomes"]:
-        team = out["name"]
-        odds = out["price"]
-        point = out.get("point", "")
+        # Build message header
+        message = f"""🏟️ {away} vs {home}
+📅 {game_time_str}
+🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}
+📏 Spread: {spread['team']} {spread['point']} @ {format_american(spread['odds']) if spread else 'N/A'}
+📊 Total: {total['team']} {total['point']} @ {format_american(total['odds']) if total else 'N/A'}
 
-        if key == "h2h":
-            ml_odds[team] = odds
-        elif key == "spreads":
-            spread_odds[f"{team} {point}"] = odds
-        elif key == "totals":
-            total_odds[f"{team} {point}"] = odds
+━━━━━━━━━━━━━━━━━━
+"""
 
-        model_prob = {"h2h": 0.55, "spreads": 0.53, "totals": 0.58}[key]
-        ev, imp, edge = ev_and_edge(model_prob, odds)
-        label = ev_label(ev)
-        if label and (best[key] is None or ev > best[key]["ev"]):
-            best[key] = {
-                "team": team,
-                "point": point,
-                "odds": odds,
-                "ev": ev,
-                "imp_prob": imp,
-                "model_prob": round(model_prob * 100, 1),
-                "vig": calculate_vig_percent(odds, odds),
-            }
+        # Append each section if it's GOOD VALUE
+        if ml and ev_label(ml["ev"]):
+            message += format_bet_section(
+                "moneyline",
+                ml["team"],
+                format_american(ml["odds"]),
+                ml["ev"],
+                ml["imp_prob"],
+                ml["model_prob"],
+                ml["vig"]
+            ) + "\n"
 
-        if not any(best.values()):
-            return
+        if spread and ev_label(spread["ev"]):
+            message += format_bet_section(
+                "spread",
+                f"{spread['team']} {spread['point']}",
+                format_american(spread["odds"]),
+                spread["ev"],
+                spread["imp_prob"],
+                spread["model_prob"],
+                spread["vig"]
+            ) + "\n"
 
-        away_ml_odds = format_american(ml_odds.get(away, "N/A"))
-        home_ml_odds = format_american(ml_odds.get(home, "N/A"))
-
-        header = (
-            f"🏟️ {away} vs {home}\n"
-            f"📅 {when}\n"
-            f"🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}\n"
-        )
-
-        if best["spreads"]:
-            header += f"📏 Spread: {best['spreads']['team']} {best['spreads']['point']} @ {format_american(best['spreads']['odds'])}\n"
-        if best["totals"]:
-            header += f"📊 Total: {best['totals']['point']} — {best['totals']['team']} @ {format_american(best['totals']['odds'])}\n"
-
-        header += "\n━━━━━━━━━━━━━━━━━━\n"
-
-        sections = []
-        if best["h2h"]:
-            best["h2h"]["vig"] = calculate_vig_percent(
-                ml_odds.get(home, -110), ml_odds.get(away, -110)
+        if total and ev_label(total["ev"]):
+            message += format_bet_section(
+                "totals",
+                f"{total['team']} {total['point']}",
+                format_american(total["odds"]),
+                total["ev"],
+                total["imp_prob"],
+                total["model_prob"],
+                total["vig"]
             )
-            pick = best["h2h"]["team"]
-            sections.append(format_bet_section("moneyline", pick, **best["h2h"]))
 
-        if best["spreads"]:
-            key = best["spreads"]["team"] + " " + str(best["spreads"]["point"])
-            opp = next((v for k, v in spread_odds.items() if k != key), -110)
-            best["spreads"]["vig"] = calculate_vig_percent(
-                best["spreads"]["odds"], opp
-            )
-            pick = best["spreads"]["team"] + " " + str(best["spreads"]["point"])
-            sections.append(format_bet_section("spread", pick, **best["spreads"]))
-
-        if best["totals"]:
-            key = best["totals"]["team"] + " " + str(best["totals"]["point"])
-            opp = next((v for k, v in total_odds.items() if k != key), -110)
-            best["totals"]["vig"] = calculate_vig_percent(
-                best["totals"]["odds"], opp
-            )
-            pick = best["totals"]["team"] + " " + str(best["totals"]["point"])
-            sections.append(format_bet_section("totals", pick, **best["totals"]))
-
-        msg = header + "\n".join(sections)
-        send_telegram_alert(msg)
-        time.sleep(2)
+        # Send only if there's something worth alerting
+        if "BEST VALUE" in message:
+            send_telegram_alert(message)
 
     except Exception as e:
-        print(f"Error processing game: {away} vs {home} — {e}")
+        print(f"Error processing game: {away} vs {home} —", e)
     
 # ── MAIN ──
 def main():
