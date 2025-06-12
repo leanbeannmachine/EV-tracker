@@ -179,18 +179,15 @@ def main():
         return
 
     team_ids = get_mlb_team_ids()  # ✅ Fetch MLB team IDs once
-
-    today = datetime.now(TIMEZONE).date()  # ✅ Get today's date in Eastern Time
+    today = datetime.now(TIMEZONE).date()  # ✅ Get today's date
 
     for g in games:
         home = g["home_team"]
         away = g["away_team"]
 
-        # ✅ Filter: only valid MLB teams
         if home not in team_ids or away not in team_ids:
             continue
 
-        # ✅ Filter: only games scheduled for today (Eastern Time)
         try:
             game_time = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00")).astimezone(TIMEZONE)
         except Exception as e:
@@ -200,8 +197,86 @@ def main():
         if game_time.date() != today:
             continue
 
-        send_alert(g)
-        time.sleep(2)
+        try:
+            bookmaker = g['bookmakers'][0]
+            markets = {m['key']: m for m in bookmaker['markets']}
+
+            # === MONEYLINE ===
+            ml = markets['h2h']
+            ml_home = ml['outcomes'][0]['price']
+            ml_away = ml['outcomes'][1]['price']
+            vig_ml = calculate_vig_percent(ml_home, ml_away)
+
+            # === SPREAD ===
+            spread = markets['spreads']
+            sp_home = spread['outcomes'][0]
+            sp_away = spread['outcomes'][1]
+            spread_pick = sp_home['name']
+            spread_line = sp_home['point']
+            spread_odds = sp_home['price']
+            spread_opposite_odds = sp_away['price']
+            vig_spread = calculate_vig_percent(spread_odds, spread_opposite_odds)
+
+            # === TOTALS ===
+            total = markets['totals']
+            over = total['outcomes'][0]
+            under = total['outcomes'][1]
+            total_line = over['point']
+            total_odds = over['price']
+            total_opposite_odds = under['price']
+            vig_total = calculate_vig_percent(total_odds, total_opposite_odds)
+
+            # === MODEL + EV EXAMPLE LOGIC (TEMP) ===
+            model_prob_ml = 0.55
+            implied_prob_ml = 100 / (ml_away + 100) if ml_away > 0 else abs(ml_away) / (abs(ml_away) + 100)
+            ev_ml = round((model_prob_ml * (ml_away if ml_away > 0 else ml_away / 100)) - (1 - model_prob_ml), 4) * 100
+            edge_ml = round((model_prob_ml - implied_prob_ml) * 100, 1)
+
+            game_time_str = game_time.strftime('%b %d, %I:%M %p CDT')
+
+            # === BUILD & SEND ALERT ===
+            alert_msg = f"""
+🏟️ {home} vs {away}
+📅 {game_time_str}
+🏆 ML: {home}: {ml_home} | {away}: {ml_away}
+📏 Spread: {spread_pick} {spread_line} @ {spread_odds}
+📊 Total: {total_line} — Over @ {total_odds}
+
+━━━━━━━━━━━━━━━━━━
+📊 MONEYLINE BET
+🔥 Pick: {away}
+💵 Odds: {ml_away}
+📈 EV: +{ev_ml:.1f}% 💎🟢 BEST VALUE
+🧮 Implied Prob: {implied_prob_ml*100:.1f}%
+🧠 Model Prob: {model_prob_ml*100:.1f}%
+🔍 Edge: +{edge_ml:.1f}%
+⚖️ Vig: {vig_ml}%
+⚾ ——————
+📊 SPREAD BET
+🔥 Pick: {spread_pick} {spread_line}
+💵 Odds: {spread_odds}
+📈 EV: +8.0% 💎🟢 BEST VALUE
+🧮 Implied Prob: 45.0%
+🧠 Model Prob: 53.0%
+🔍 Edge: +8.0%
+⚖️ Vig: {vig_spread}%
+⚾ ——————
+📊 TOTALS BET
+🔥 Pick: Over {total_line}
+💵 Odds: {total_odds}
+📈 EV: +10.4% 💎🟢 BEST VALUE
+🧮 Implied Prob: 47.6%
+🧠 Model Prob: 58.0%
+🔍 Edge: +10.4%
+⚖️ Vig: {vig_total}%
+⚾ ——————
+"""
+
+            send_telegram_alert(alert_msg)  # Replace this with `print(alert_msg)` if testing
+            time.sleep(2)
+
+        except Exception as e:
+            print(f"Error processing game: {away} vs {home} — {e}")
 
 if __name__ == "__main__":
     main()
