@@ -5,6 +5,14 @@ import pytz
 from datetime import datetime
 import telegram
 
+def calculate_vig_percent(odds1, odds2):
+    def implied_prob(odds):
+        return abs(odds) / (abs(odds) + 100) if odds < 0 else 100 / (odds + 100)
+    prob1 = implied_prob(odds1)
+    prob2 = implied_prob(odds2)
+    vig = (prob1 + prob2 - 1.0) * 100
+    return round(vig, 2)
+
 # ── CONFIG ──
 API_KEY           = "8aed519f266c2ab6611693b5c978db8c"      # OddsAPI key
 TELEGRAM_TOKEN    = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"  # Telegram bot token
