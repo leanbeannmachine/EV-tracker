@@ -64,7 +64,7 @@ def process_and_alert(games):
     for game in games:
         home = game["home_team"]
         away = game["away_team"]
-        start = datetime.fromisoformat(game["commence_time"]).astimezone(CDT)
+        start = datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(CDT)
 
         model_probs = get_model_probabilities(home, away)
 
