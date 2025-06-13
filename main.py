@@ -41,6 +41,11 @@ import json
 
 SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"  # Replace with your real key
 
+import requests
+import json
+
+SCRAPERAPI_KEY = "YOUR_SCRAPERAPI_KEY"  # Replace with your actual ScraperAPI key
+
 def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
 
@@ -66,61 +71,6 @@ def fetch_bovada_mlb_odds():
         print(f"❌ Failed to parse JSON: {e}")
         print("⚠️ Raw response:", response.text)
         return []
-
-    games = []
-    try:
-        events = data[0]["events"]
-        for event in events:
-            teams = [c["name"] for c in event["competitors"]]
-            home = [c["name"] for c in event["competitors"] if c["home"]][0]
-            away = [c["name"] for c in event["competitors"] if not c["home"]][0]
-            start_time_utc = datetime.fromtimestamp(event["startTime"] / 1000)
-            start_time_cdt = start_time_utc.astimezone(pytz.timezone("America/Chicago")).strftime("%I:%M %p %Z")
-
-            markets = event.get("displayGroups", [])[0].get("markets", [])
-            moneyline, spread, total = None, None, None
-
-            for market in markets:
-                description = market.get("description", "").lower()
-                if "moneyline" in description:
-                    moneyline = market
-                elif "spread" in description:
-                    spread = market
-                elif "total" in description:
-                    total = market
-
-            def extract_odds(market):
-                if not market:
-                    return {}
-                outcomes = {}
-                for outcome in market.get("outcomes", []):
-                    team = outcome.get("description", "")
-                    odds_str = outcome.get("price", {}).get("american", "")
-                    if odds_str == "EVEN":
-                        odds_str = "+100"
-                    try:
-                        odds = int(odds_str)
-                    except ValueError:
-                        odds = None
-                    outcomes[team] = {
-                        "odds": odds,
-                        "raw": outcome.get("price", {})
-                    }
-                return outcomes
-
-            games.append({
-                "home_team": home,
-                "away_team": away,
-                "start_time_cdt": start_time_cdt,
-                "moneyline": extract_odds(moneyline),
-                "spread": extract_odds(spread),
-                "total": extract_odds(total),
-            })
-
-    except Exception as e:
-        print(f"❌ Error while parsing event data: {e}")
-
-    return games
     
 def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
     emoji = "🔥" if ev > 0 else "⚠️"
