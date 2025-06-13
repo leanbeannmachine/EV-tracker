@@ -34,30 +34,34 @@ def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
 
     bovada_url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"
-    scraperapi_url = (
-        f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&render=true&url={bovada_url}"
-        f"&url={bovada_url}"
-        f"&render=true&premium=true"
-    )
+    scraperapi_url = f"http://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}&url={bovada_url}&render=true&premium=true"
 
     try:
-        response = requests.get(scraperapi_url, timeout=30)
+        response = requests.get(scraperapi_url, timeout=20)
         response.raise_for_status()
         data = response.json()
 
-        if not data or "events" not in data[0]:
+        if not data or not isinstance(data, list):
             print("⚠️ Unexpected response structure:", data)
             return []
 
-        print("✅ MLB odds fetched successfully.")
-        return data[0]["events"]
+        events = []
+        for section in data:
+            if "events" in section:
+                events.extend(section["events"])
+
+        if not events:
+            print("⚠️ No MLB events found in data.")
+        else:
+            print(f"✅ {len(events)} MLB events fetched successfully.")
+
+        return events
 
     except requests.exceptions.RequestException as e:
         print(f"❌ ScraperAPI error: {e}")
         return []
-    except json.JSONDecodeError as e:
-        print(f"❌ Failed to parse JSON: {e}")
-        print("⚠️ Raw response:", response.text)
+    except Exception as e:
+        print(f"❌ Unexpected error while fetching or parsing data: {e}")
         return []
 
 def extract_game_data(event):
