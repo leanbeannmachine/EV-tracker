@@ -113,61 +113,29 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 def send_alert(game):
     home = game["home_team"]
     away = game["away_team"]
-    start = game["start_time"]
-    model = get_model_probabilities(home, away)
+    start_time = game["start_time_cdt"]
 
-    # MONEYLINE
-    ml_data = game["moneyline"]
-    if ml_data:
-        ml1, ml2 = list(ml_data.keys())
-        odds1, odds2 = ml_data[ml1]["odds"], ml_data[ml2]["odds"]
-        imp1, imp2 = implied_prob(odds1), implied_prob(odds2)
-        vig = calc_vig(imp1, imp2)
-        best = ml1 if expected_value(model["moneyline"][ml1], odds1) > expected_value(model["moneyline"][ml2], odds2) else ml2
-        best_odds = ml_data[best]["odds"]
-        ev = expected_value(model["moneyline"][best], best_odds)
-        edge = model["moneyline"][best] - implied_prob(best_odds)
-        ml_section = format_bet_section("moneyline", best, best_odds, ev, implied_prob(best_odds), model["moneyline"][best], edge * 100, vig)
-    else:
-        ml_section = "❌ No moneyline available"
-
-    # SPREAD
-    spread_data = game["spread"]
-    if spread_data:
-        best = max(spread_data.items(), key=lambda x: expected_value(model["spread"].get(x[0], 0.5), x[1]["odds"]))[0]
-        ev = expected_value(model["spread"].get(best, 0.5), spread_data[best]["odds"])
-        edge = model["spread"].get(best, 0.5) - implied_prob(spread_data[best]["odds"])
-        imp = implied_prob(spread_data[best]["odds"])
-        vig = 0  # Optional to calculate spread vig
-        spread_section = format_bet_section("spread", f"{best} {spread_data[best]['line']}", spread_data[best]["odds"], ev, imp, model["spread"].get(best, 0.5), edge * 100, vig)
-    else:
-        spread_section = "❌ No spread available"
-
-    # TOTAL
-    total_data = game["total"]
-    if total_data:
-        best = max(total_data.items(), key=lambda x: expected_value(model["total"].get(x[0], 0.5), x[1]["odds"]))[0]
-        ev = expected_value(model["total"].get(best, 0.5), total_data[best]["odds"])
-        edge = model["total"].get(best, 0.5) - implied_prob(total_data[best]["odds"])
-        imp = implied_prob(total_data[best]["odds"])
-        vig = 0
-        total_section = format_bet_section("totals", f"{best} {total_data[best]['line']}", total_data[best]["odds"], ev, imp, model["total"].get(best, 0.5), edge * 100, vig)
-    else:
-        total_section = "❌ No total available"
+    ml_data = game.get("moneyline") or {}
+    spread_data = game.get("spread") or {}
+    total_data = game.get("total") or {}
 
     msg = f"""🏟️ {home} vs {away}
-📅 {start}
-🏆 ML: {ml_data.get(home, {}).get('odds', 'N/A')} | {away}: {ml_data.get(away, {}).get('odds', 'N/A')}
-📏 Spread: {spread_data.get(home, {}).get('line', 'N/A')} | {away}: {spread_data.get(away, {}).get('line', 'N/A')}
-📊 Total: {total_data.get('Over', {}).get('line', 'N/A')} — Over/Under
+📅 {start_time.strftime('%b %d, %I:%M %p CDT')}
+🏆 ML: {home}: {ml_data.get(home, {}).get('odds', 'N/A')} | {away}: {ml_data.get(away, {}).get('odds', 'N/A')}
+📏 Spread: {spread_data.get('label', 'N/A')} @ {spread_data.get('odds', 'N/A')}
+📊 Total: {total_data.get('label', 'N/A')} — {total_data.get('side', 'N/A')} @ {total_data.get('odds', 'N/A')}
 
-━━━━━━━━━━━━━━━━━━
-{ml_section}
-{spread_section}
-{total_section}"""
+━━━━━━━━━━━━━━━━━━"""
 
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
+    if ml_data.get("best_value"):
+        msg += format_bet_section("MONEYLINE BET", ml_data["best_value"])
+    if spread_data.get("best_value"):
+        msg += format_bet_section("SPREAD BET", spread_data["best_value"])
+    if total_data.get("best_value"):
+        msg += format_bet_section("TOTALS BET", total_data["best_value"])
 
+    send_telegram_message(msg)
+    
 # MAIN RUN
 if __name__ == "__main__":
     games = fetch_bovada_mlb_odds()
