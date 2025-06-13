@@ -32,20 +32,31 @@ def expected_value(prob, odds):
 
 def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
-    url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"  # ✅ Correct and working
-    scraperapi_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}"
+
+    bovada_url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"
+    scraperapi_url = (
+        f"http://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}"
+        f"&url={bovada_url}"
+        f"&render=true&premium=true"
+    )
 
     try:
-        response = requests.get(scraperapi_url, timeout=20)
+        response = requests.get(scraperapi_url, timeout=15)
         response.raise_for_status()
         data = response.json()
-        print(f"✅ Fetched {len(data)} events.")
-        return data
+
+        if not data or "events" not in data[0]:
+            print("⚠️ Unexpected response structure:", data)
+            return []
+
+        print("✅ MLB odds fetched successfully.")
+        return data[0]["events"]
+
     except requests.exceptions.RequestException as e:
         print(f"❌ ScraperAPI error: {e}")
         return []
     except json.JSONDecodeError as e:
-        print(f"❌ JSON decode error: {e}")
+        print(f"❌ Failed to parse JSON: {e}")
         print("⚠️ Raw response:", response.text)
         return []
 
