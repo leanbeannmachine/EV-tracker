@@ -2,6 +2,7 @@ import os
 import re
 import requests
 from datetime import datetime
+import pytz
 from pytz import timezone
 
 # === ENVIRONMENT VARIABLES ===
@@ -9,12 +10,10 @@ TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
 API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
 
-# === CONSTANTS ===
 CENTRAL = timezone('US/Central')
 SPORT_KEY = 'baseball_mlb'
 BOOKMAKER_KEY = 'draftkings'
 
-# === UTILITY FUNCTIONS ===
 def decimal_to_american(decimal_odds):
     if decimal_odds >= 2.0:
         return int((decimal_odds - 1) * 100)
@@ -46,7 +45,6 @@ def escape_markdown(text):
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
-# === TELEGRAM ALERT FUNCTION ===
 def send_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -58,7 +56,6 @@ def send_alert(message):
     if response.status_code != 200:
         print(f"Telegram send failed: {response.text}")
 
-# === FETCH GAMES FROM ODDS API ===
 def fetch_games():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=decimal&bookmakers={BOOKMAKER_KEY}&apiKey={API_KEY}"
     response = requests.get(url)
@@ -71,10 +68,15 @@ def fetch_games():
 
     for game in data:
         try:
+            if not game.get('bookmakers'):
+                continue
+
+            bookmaker = game['bookmakers'][0]
+            markets = bookmaker['markets']
+
             home = game['home_team']
             away = game['away_team']
             commence = game['commence_time']
-            markets = game['bookmakers'][0]['markets']
 
             moneyline = {}
             spreads = []
@@ -114,7 +116,6 @@ def fetch_games():
 
     return games
 
-# === SELECT BEST BET ===
 def get_best_bet(bet_list):
     if not bet_list:
         return None
@@ -130,7 +131,7 @@ def get_best_bet(bet_list):
 
         decimal_odds = price
         implied_prob = calculate_implied_probability(decimal_odds)
-        vig = calculate_vig([implied_prob, 1 - implied_prob])  # approx for 2-way
+        vig = calculate_vig([implied_prob, 1 - implied_prob])
         model_prob_home, model_prob_away = get_model_probabilities(pick, "opponent")
         model_prob = model_prob_home if pick == "home" else model_prob_away
         ev = calculate_ev(model_prob, decimal_odds)
@@ -150,7 +151,6 @@ def get_best_bet(bet_list):
 
     return best_bet
 
-# === FORMAT EACH BET ===
 def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_prob, edge, vig):
     odds_american = decimal_to_american(odds_decimal)
     ev_pct = round(ev * 100, 1)
@@ -183,12 +183,11 @@ def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_pro
     )
     return section
 
-# === PROCESS GAMES & ALERT ===
 def process_games(games):
     for game in games:
         try:
             teams = f"{game['away_team']} @ {game['home_team']}"
-            game_time_cdt = datetime.fromtimestamp(game['commence_time'], tz=timezone.utc).astimezone(CENTRAL)
+            game_time_cdt = datetime.fromtimestamp(game['commence_time'], tz=pytz.utc).astimezone(CENTRAL)
             game_time_str = game_time_cdt.strftime("%m/%d %I:%M %p CDT")
 
             header = f"⚾ {escape_markdown(teams)}\n🕒 {escape_markdown(game_time_str)}\n"
