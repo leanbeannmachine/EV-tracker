@@ -50,7 +50,7 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 # 🚀 Pull odds from OddsAPI
 def fetch_oddsapi_mlb_odds():
     url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals&bookmakers=mybookieag"
-    print("Status:", resp.status_code, "Remaining:", resp.headers.get('x-requests-remaining'))
+    print("Status:", response.status_code, "Remaining:", response.headers.get('x-requests-remaining'))
     print("Sample data:", resp.text[:500])
     data = resp.json()
     print("Game count:", len(data))
