@@ -7,7 +7,7 @@ from pytz import timezone
 # === ENVIRONMENT VARIABLES ===
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
-ODDS_API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
+API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
 
 # === CONSTANTS ===
 CENTRAL = timezone('US/Central')
