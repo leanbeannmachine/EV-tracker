@@ -49,14 +49,25 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 
 # 🚀 Pull odds from OddsAPI
 def fetch_oddsapi_mlb_odds():
+    import requests
+    import os
+
+    API_KEY = os.getenv("ODDS_API_KEY")
     url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals&bookmakers=mybookieag"
+
+    response = requests.get(url)  # ✅ this must come BEFORE the print
     print("Status:", response.status_code, "Remaining:", response.headers.get('x-requests-remaining'))
-    print("Sample data:", resp.text[:500])
-    data = resp.json()
-    print("Game count:", len(data))
-    for g in data:
-        print(g['home_team'], "vs", g['away_team'], ":", [b['key'] for b in g['bookmakers']])
-    return data
+
+    if response.status_code != 200:
+        raise Exception("Failed to fetch odds: " + response.text)
+
+    games = response.json()
+    print("Game count:", len(games))
+
+    if games:
+        print("Sample data:", games[0])
+
+    return games
 
 # 🧠 Parse and send alerts
 from datetime import datetime, timezone
