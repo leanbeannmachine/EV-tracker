@@ -18,21 +18,26 @@ BOOKMAKER = "draftkings"
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
 # 🎯 Math Functions
-def implied_prob(odds):
-    return abs(odds) / (abs(odds) + 100) if odds > 0 else 100 / (abs(odds) + 100)
+def decimal_to_american(decimal_odds):
+    if decimal_odds >= 2.0:
+        return int((decimal_odds - 1) * 100)
+    elif decimal_odds > 1.0:
+        return int(-100 / (decimal_odds - 1))
+    else:
+        return None  # Invalid odds
+
+def implied_prob(american_odds):
+    if american_odds is None:
+        return 0
+    return abs(american_odds) / (abs(american_odds) + 100) if american_odds > 0 else 100 / (abs(american_odds) + 100)
+
+def expected_value(prob, american_odds):
+    if american_odds is None:
+        return -100  # Bad bet
+    return ((prob * (abs(american_odds) / 100)) - (1 - prob)) * 100 if american_odds > 0 else ((prob * 100 / abs(american_odds)) - (1 - prob)) * 100
 
 def calc_vig(p1, p2):
-    return p1 + p2 - 1
-
-def expected_value(prob, odds):
-    return ((prob * (abs(odds) / 100)) - (1 - prob)) * 100 if odds > 0 else ((prob * 100 / abs(odds)) - (1 - prob)) * 100
-
-def get_model_probabilities(team1, team2):
-    return {
-        "moneyline": {team1: 0.52, team2: 0.48},
-        "spread": {team1: 0.53, team2: 0.47},
-        "total": {"Over": 0.58, "Under": 0.42}
-    }
+    return max(p1 + p2 - 1, 0)
 
 # 🧽 Format Alert Section
 def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
