@@ -32,78 +32,94 @@ import requests
 from datetime import datetime
 import pytz
 
+import requests
+from datetime import datetime
+import pytz
+
 def fetch_bovada_mlb_odds():
     url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
     proxy_list = [
-        "http://208.102.24.225:80",
-        "http://138.201.125.229:8118",  # Germany
-        "http://198.27.74.6:9300",     # USA
-        "http://177.53.152.81:8080",   # Brazil
+        "http://45.55.67.160:3128",   # DigitalOcean (US)
+        "http://51.158.68.26:8811",   # France
+        "http://159.89.132.167:8989", # High uptime US
     ]
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-    for proxy_url in proxy_list:
-        proxies = {"http": proxy_url, "https": proxy_url}
+    for proxy in proxy_list:
         try:
-            response = requests.get(url, proxies=proxies, timeout=10)
-        except requests.RequestException as e:
-            print(f"⚠️ Proxy {proxy_url} connection error: {e}")
-            continue
+            print(f"🌐 Trying proxy {proxy}...")
+            response = requests.get(url, headers=headers, proxies={"http": proxy, "https": proxy}, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            print("✅ Successfully fetched odds via proxy.")
+            break
+        except requests.exceptions.ProxyError as e:
+            print(f"⚠️ Proxy {proxy} connection error: {e}")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Request failed: {e}")
+        except ValueError as e:
+            print(f"❌ Failed to parse Bovada JSON: {e}")
+            print(f"⚠️ Raw response: {response.text if response else 'No response'}")
+    else:
+        print("❌ All proxies failed. No data fetched.")
+        return []
 
-        if response.status_code != 200 or not response.text.strip():
-            print(f"⚠️ Proxy {proxy_url} returned status {response.status_code}")
-            continue
+    games = []
+    try:
+        events = data[0]["events"]
+        for event in events:
+            teams = [c["name"] for c in event["competitors"]]
+            home = [c["name"] for c in event["competitors"] if c["home"]][0]
+            away = [c["name"] for c in event["competitors"] if not c["home"]][0]
+            start_time_utc = datetime.fromtimestamp(event["startTime"] / 1000)
+            start_time_cdt = start_time_utc.astimezone(pytz.timezone("America/Chicago")).strftime("%I:%M %p %Z")
 
-        try:
-            raw = response.json()
-            data = raw[0]["events"]
-        except Exception as e:
-            print(f"⚠️ Proxy {proxy_url} JSON parse error: {e}")
-            continue
+            markets = event.get("displayGroups", [])[0].get("markets", [])
+            moneyline, spread, total = None, None, None
 
-        # Success! Process data below...
-        central = pytz.timezone("America/Chicago")
-        games = []
-        for g in data:
-            try:
-                home = next(team["name"] for team in g["competitors"] if team["home"])
-                away = next(team["name"] for team in g["competitors"] if not team["home"])
-                start_dt = datetime.fromtimestamp(g["startTime"]/1000, tz=central)
-                start_cdt = start_dt.strftime("%b %d, %I:%M %p CDT")
+            for market in markets:
+                description = market.get("description", "").lower()
+                if "moneyline" in description:
+                    moneyline = market
+                elif "spread" in description:
+                    spread = market
+                elif "total" in description:
+                    total = market
 
-                ml, sp, tot = None, None, None
-                for grp in g.get("displayGroups", []):
-                    for m in grp.get("markets", []):
-                        desc = m.get("description", "").lower()
-                        if "moneyline" in desc: ml = m.get("outcomes", [])
-                        if "spread" in desc: sp = m.get("outcomes", [])
-                        if "total" in desc: tot = m.get("outcomes", [])
+            def extract_odds(market):
+                if not market:
+                    return {}
+                outcomes = {}
+                for outcome in market.get("outcomes", []):
+                    team = outcome.get("description", "")
+                    odds_str = outcome.get("price", {}).get("american", "")
+                    if odds_str == "EVEN":
+                        odds_str = "+100"
+                    try:
+                        odds = int(odds_str)
+                    except ValueError:
+                        odds = None
+                    outcomes[team] = {
+                        "odds": odds,
+                        "raw": outcome.get("price", {})
+                    }
+                return outcomes
 
-                def ex(os):
-                    out = {}
-                    for o in os or []:
-                        nm = o.get("description")
-                        od = o.get("price", {}).get("american")
-                        od = 100 if od == "EVEN" else int(od or 0)
-                        out[nm] = {"odds": od, "raw": o}
-                    return out
+            games.append({
+                "home_team": home,
+                "away_team": away,
+                "start_time_cdt": start_time_cdt,
+                "moneyline": extract_odds(moneyline),
+                "spread": extract_odds(spread),
+                "total": extract_odds(total),
+            })
 
-                games.append({
-                    "home_team": home,
-                    "away_team": away,
-                    "start_time_cdt": start_cdt,
-                    "moneyline": ex(ml),
-                    "spread": ex(sp),
-                    "total": ex(tot),
-                })
-            except Exception as e:
-                print(f"⚠️ Event parse error: {e}")
-                continue
+    except Exception as e:
+        print(f"❌ Error while parsing event data: {e}")
 
-        return games  # Exit once we get valid data
-
-    # If we tried all proxies and none worked:
-    print("❌ All proxies failed. No data fetched.")
-    return []
+    return games
     
 def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
     emoji = "🔥" if ev > 0 else "⚠️"
@@ -146,5 +162,8 @@ def send_alert(game):
 # MAIN RUN
 if __name__ == "__main__":
     games = fetch_bovada_mlb_odds()
-    for game in games:
-        send_alert(game)
+    if not games:
+        print("🔕 No MLB odds fetched. Exiting.")
+    else:
+        for game in games:
+            send_alert(game)
