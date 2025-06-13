@@ -16,16 +16,15 @@ BOOKMAKER_KEY = 'draftkings'
 
 def decimal_to_american(decimal_odds):
     if decimal_odds >= 2.0:
-        return int((decimal_odds - 1) * 100)
+        return f"+{int((decimal_odds - 1) * 100)}"
     else:
-        return int(-100 / (decimal_odds - 1))
+        return f"{int(-100 / (decimal_odds - 1))}"
 
 def calculate_implied_probability(decimal_odds):
     return 1 / decimal_odds
 
 def calculate_vig(implied_probs):
-    total = sum(implied_probs)
-    return total - 1
+    return max(0, sum(implied_probs) - 1)
 
 def calculate_ev(model_prob, decimal_odds):
     return (model_prob * (decimal_odds - 1)) - (1 - model_prob)
@@ -116,37 +115,54 @@ def fetch_games():
 
     return games
 
-def get_best_bet(bet_list):
+def get_best_bet(bet_list, bet_type, home_team=None, away_team=None):
     if not bet_list:
         return None
 
     best_bet = None
     best_ev = 0
 
+    implied_probs = []
     for bet in bet_list:
-        pick = bet.get('name') if 'name' in bet else None
         price = bet.get('price')
-        if not pick or price is None:
+        if price is None:
+            continue
+        implied_probs.append(calculate_implied_probability(price))
+
+    vig = calculate_vig(implied_probs) if len(implied_probs) >= 2 else 0
+
+    for bet in bet_list:
+        pick = bet.get('name')
+        price = bet.get('price')
+        if pick is None or price is None:
             continue
 
-        decimal_odds = price
-        implied_prob = calculate_implied_probability(decimal_odds)
-        vig = calculate_vig([implied_prob, 1 - implied_prob])
-        model_prob_home, model_prob_away = get_model_probabilities(pick, "opponent")
-        model_prob = model_prob_home if pick == "home" else model_prob_away
-        ev = calculate_ev(model_prob, decimal_odds)
+        implied_prob = calculate_implied_probability(price)
+
+        if bet_type == 'moneyline':
+            model_home, model_away = get_model_probabilities(home_team, away_team)
+            model_prob = model_home if pick == home_team else model_away
+        elif bet_type == 'spread':
+            model_prob = 0.55  # placeholder for spread model confidence
+        elif bet_type == 'total':
+            model_prob = 0.665 if pick.lower() == 'over' else 0.335
+        else:
+            model_prob = 0.5
+
+        ev = calculate_ev(model_prob, price)
         edge = calculate_edge(model_prob, implied_prob)
 
         if ev > best_ev and ev > 0:
             best_ev = ev
             best_bet = {
                 'pick': pick,
-                'odds_decimal': decimal_odds,
+                'odds_decimal': price,
                 'implied_prob': implied_prob,
                 'model_prob': model_prob,
                 'ev': ev,
                 'edge': edge,
-                'vig': vig
+                'vig': vig,
+                'point': bet.get('point')
             }
 
     return best_bet
@@ -192,56 +208,34 @@ def process_games(games):
 
             header = f"⚾ {escape_markdown(teams)}\n🕒 {escape_markdown(game_time_str)}\n"
 
-            best_ml = get_best_bet([{ 'name': k, 'price': v } for k, v in game['moneyline'].items()])
-            best_spread = get_best_bet(game['spreads'])
-            best_total = get_best_bet(game['totals'])
+            best_ml = get_best_bet([{ 'name': k, 'price': v } for k, v in game['moneyline'].items()], 'moneyline', home_team=game['home_team'], away_team=game['away_team'])
+            best_spread = get_best_bet(game['spreads'], 'spread')
+            best_total = get_best_bet(game['totals'], 'total')
 
             sections = []
 
             if best_ml:
-                ml_section = format_bet_section(
-                    bet_type='moneyline',
-                    pick=best_ml['pick'],
-                    odds_decimal=best_ml['odds_decimal'],
-                    ev=best_ml['ev'],
-                    implied_prob=best_ml['implied_prob'],
-                    model_prob=best_ml['model_prob'],
-                    edge=best_ml['edge'],
-                    vig=best_ml['vig']
-                )
-                if ml_section:
-                    sections.append(ml_section)
+                sections.append(format_bet_section(
+                    'moneyline', best_ml['pick'], best_ml['odds_decimal'], best_ml['ev'],
+                    best_ml['implied_prob'], best_ml['model_prob'], best_ml['edge'], best_ml['vig']
+                ))
 
             if best_spread:
-                spread_section = format_bet_section(
-                    bet_type='spread',
-                    pick=f"{best_spread['pick']} {best_spread.get('point', '')}",
-                    odds_decimal=best_spread['odds_decimal'],
-                    ev=best_spread['ev'],
-                    implied_prob=best_spread['implied_prob'],
-                    model_prob=best_spread['model_prob'],
-                    edge=best_spread['edge'],
-                    vig=best_spread['vig']
-                )
-                if spread_section:
-                    sections.append(spread_section)
+                spread_pick = f"{best_spread['pick']} {best_spread['point']}"
+                sections.append(format_bet_section(
+                    'spread', spread_pick, best_spread['odds_decimal'], best_spread['ev'],
+                    best_spread['implied_prob'], best_spread['model_prob'], best_spread['edge'], best_spread['vig']
+                ))
 
             if best_total:
-                total_section = format_bet_section(
-                    bet_type='total',
-                    pick=f"{best_total['pick']} {best_total.get('point', '')}",
-                    odds_decimal=best_total['odds_decimal'],
-                    ev=best_total['ev'],
-                    implied_prob=best_total['implied_prob'],
-                    model_prob=best_total['model_prob'],
-                    edge=best_total['edge'],
-                    vig=best_total['vig']
-                )
-                if total_section:
-                    sections.append(total_section)
+                total_pick = f"{best_total['pick']} {best_total['point']}"
+                sections.append(format_bet_section(
+                    'total', total_pick, best_total['odds_decimal'], best_total['ev'],
+                    best_total['implied_prob'], best_total['model_prob'], best_total['edge'], best_total['vig']
+                ))
 
-            if sections:
-                message = header + "\n\n" + "\n\n".join(sections)
+            if any(sections):
+                message = header + "\n\n" + "\n\n".join(filter(None, sections))
                 send_alert(message)
 
         except Exception as e:
