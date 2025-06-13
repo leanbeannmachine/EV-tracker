@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from datetime import datetime
 from pytz import timezone
@@ -34,19 +35,19 @@ def calculate_edge(model_prob, implied_prob):
     return model_prob - implied_prob
 
 def get_model_probabilities(home_team, away_team):
-    """
-    Placeholder for a model that returns realistic win probabilities.
-    Here we simulate by comparing team names alphabetically,
-    but you can replace this with actual ML/statistical models.
-    Returns tuple: (home_prob, away_prob) summing to 1.
-    """
-    # Example simplistic model logic:
     home_score = sum(ord(c) for c in home_team.lower())
     away_score = sum(ord(c) for c in away_team.lower())
     total = home_score + away_score
     home_prob = home_score / total
     away_prob = away_score / total
     return home_prob, away_prob
+
+def escape_markdown(text):
+    """
+    Escapes characters for MarkdownV2 formatting required by Telegram.
+    """
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
 # === TELEGRAM ALERT FUNCTION ===
 def send_alert(message):
@@ -60,7 +61,7 @@ def send_alert(message):
     if response.status_code != 200:
         print(f"Telegram send failed: {response.text}")
 
-# === FORMATTERS ===
+# === FORMATTER ===
 def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_prob, edge, vig):
     odds_american = decimal_to_american(odds_decimal)
     ev_pct = round(ev * 100, 1)
@@ -68,34 +69,32 @@ def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_pro
     model_pct = round(model_prob * 100, 1)
     edge_pct = round(edge * 100, 1)
     vig_pct = round(vig * 100, 2)
-    
-    # Only show if EV positive (good or best value)
+
     if ev <= 0:
         return None
-    
+
     emoji_map = {
         'moneyline': '💰',
         'spread': '📉',
         'total': '⚖️'
     }
     emoji = emoji_map.get(bet_type, '📊')
-    
     value_label = "💎🟢 BEST VALUE" if ev_pct > 5 else "⚠️ GOOD VALUE"
-    
+
     section = (
-        f"{emoji} *{bet_type.upper()} BET*\n"
-        f"⚠️ Pick: {pick}\n"
-        f"💵 Odds: {odds_american}\n"
-        f"📈 EV: {ev_pct}% {value_label}\n"
-        f"🧮 Implied Prob: {implied_pct}%\n"
-        f"🧠 Model Prob: {model_pct}%\n"
-        f"🔍 Edge: {edge_pct}%\n"
-        f"⚖️ Vig: {vig_pct}%\n"
-        "⚾ ——————"
+        f"{emoji} *{escape_markdown(bet_type.upper())} BET*\n"
+        f"⚠️ Pick: {escape_markdown(pick)}\n"
+        f"💵 Odds: {escape_markdown(odds_american)}\n"
+        f"📈 EV: {escape_markdown(ev_pct)}% {escape_markdown(value_label)}\n"
+        f"🧮 Implied Prob: {escape_markdown(implied_pct)}%\n"
+        f"🧠 Model Prob: {escape_markdown(model_pct)}%\n"
+        f"🔍 Edge: {escape_markdown(edge_pct)}%\n"
+        f"⚖️ Vig: {escape_markdown(vig_pct)}%\n"
+        f"⚾ ——————"
     )
     return section
 
-# === MAIN PROCESSING ===
+# === MAIN FUNCTION ===
 def process_games():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds"
     params = {
@@ -108,11 +107,11 @@ def process_games():
     if resp.status_code != 200:
         print(f"Failed to fetch odds: {resp.status_code} {resp.text}")
         return
-    
+
     games = resp.json()
     print(f"Status: {resp.status_code} Remaining: {resp.headers.get('x-requests-remaining')}")
     print(f"Game count: {len(games)}")
-    
+
     for game in games:
         try:
             home = game['home_team']
@@ -120,85 +119,61 @@ def process_games():
             commence = datetime.fromisoformat(game['commence_time'].replace('Z', '+00:00')).astimezone(CENTRAL)
             commence_str = commence.strftime('%m/%d %I:%M %p CDT')
 
-            # Extract DraftKings bookmaker odds
             bookmaker = next((b for b in game['bookmakers'] if b['key'] == BOOKMAKER_KEY), None)
             if bookmaker is None:
-                print(f"❌ DraftKings odds not available for {away} vs {home}")
                 continue
 
-            # Parse markets
             markets = {m['key']: m for m in bookmaker['markets']}
 
-            # Parse odds for moneyline
-            if 'h2h' not in markets:
-                print(f"❌ Moneyline not available for {away} vs {home}")
+            if 'h2h' not in markets or 'spreads' not in markets or 'totals' not in markets:
                 continue
+
+            # Moneyline
             h2h = markets['h2h']['outcomes']
             ml_odds = {o['name']: o['price'] for o in h2h}
             if home not in ml_odds or away not in ml_odds:
-                print(f"❌ Moneyline odds missing teams for {away} vs {home}")
                 continue
 
-            # Parse spreads
-            if 'spreads' not in markets:
-                print(f"❌ Spread not available for {away} vs {home}")
-                continue
+            # Spread
             spreads = markets['spreads']['outcomes']
             spread_odds = {o['name']: {'price': o['price'], 'point': o['point']} for o in spreads}
             if home not in spread_odds or away not in spread_odds:
-                print(f"❌ Spread odds missing teams for {away} vs {home}")
                 continue
 
-            # Parse totals
-            if 'totals' not in markets:
-                print(f"❌ Totals not available for {away} vs {home}")
-                continue
+            # Total
             totals = markets['totals']['outcomes']
-            total_point = totals[0]['point']  # both over and under share same point
+            total_point = totals[0]['point']
             total_odds = {o['name']: o['price'] for o in totals}
             if 'Over' not in total_odds or 'Under' not in total_odds:
-                print(f"❌ Totals odds missing for {away} vs {home}")
                 continue
 
-            # Get model probabilities
+            # Model probabilities
             home_prob, away_prob = get_model_probabilities(home, away)
 
-            # Calculate implied probs and vig
-            implied_ml_probs = [calculate_implied_probability(ml_odds[home]),
-                                calculate_implied_probability(ml_odds[away])]
-            vig_ml = calculate_vig(implied_ml_probs)
+            # Vig
+            vig_ml = calculate_vig([calculate_implied_probability(ml_odds[home]),
+                                    calculate_implied_probability(ml_odds[away])])
+            vig_spread = calculate_vig([calculate_implied_probability(spread_odds[home]['price']),
+                                        calculate_implied_probability(spread_odds[away]['price'])])
+            vig_total = calculate_vig([calculate_implied_probability(total_odds['Over']),
+                                       calculate_implied_probability(total_odds['Under'])])
 
-            implied_spread_probs = [calculate_implied_probability(spread_odds[home]['price']),
-                                   calculate_implied_probability(spread_odds[away]['price'])]
-            vig_spread = calculate_vig(implied_spread_probs)
-
-            implied_total_probs = [calculate_implied_probability(total_odds['Over']),
-                                   calculate_implied_probability(total_odds['Under'])]
-            vig_total = calculate_vig(implied_total_probs)
-
-            # Calculate EV and edge for moneyline (pick team with positive EV)
+            # Moneyline bets
             ml_bets = []
             for team, prob in zip([home, away], [home_prob, away_prob]):
                 odds = ml_odds[team]
-                implied_prob = calculate_implied_probability(odds)
+                implied = calculate_implied_probability(odds)
                 ev = calculate_ev(prob, odds)
-                edge = calculate_edge(prob, implied_prob)
+                edge = calculate_edge(prob, implied)
                 if ev > 0:
                     ml_bets.append({
-                        'pick': team,
-                        'odds': odds,
-                        'ev': ev,
-                        'implied_prob': implied_prob,
-                        'model_prob': prob,
-                        'edge': edge,
-                        'vig': vig_ml
+                        'pick': team, 'odds': odds, 'ev': ev,
+                        'implied_prob': implied, 'model_prob': prob,
+                        'edge': edge, 'vig': vig_ml
                     })
 
             if not ml_bets:
-                # no positive EV moneyline bet found, skip game
                 continue
-
-            # Choose best moneyline bet by EV
             best_ml = max(ml_bets, key=lambda b: b['ev'])
 
             # Spread bets
@@ -206,68 +181,52 @@ def process_games():
             for team in [home, away]:
                 odds = spread_odds[team]['price']
                 point = spread_odds[team]['point']
-                implied_prob = calculate_implied_probability(odds)
-                # Assume model prob aligns with moneyline probabilities for spreads (simplification)
+                implied = calculate_implied_probability(odds)
                 prob = home_prob if team == home else away_prob
                 ev = calculate_ev(prob, odds)
-                edge = calculate_edge(prob, implied_prob)
+                edge = calculate_edge(prob, implied)
                 if ev > 0:
-                    pick_str = f"{team} {point:+}"
                     spread_bets.append({
-                        'pick': pick_str,
-                        'odds': odds,
-                        'ev': ev,
-                        'implied_prob': implied_prob,
-                        'model_prob': prob,
-                        'edge': edge,
-                        'vig': vig_spread
+                        'pick': f"{team} {point:+}", 'odds': odds, 'ev': ev,
+                        'implied_prob': implied, 'model_prob': prob,
+                        'edge': edge, 'vig': vig_spread
                     })
 
             if not spread_bets:
                 continue
             best_spread = max(spread_bets, key=lambda b: b['ev'])
 
-            # Total bets (Over/Under)
+            # Total bets
             total_bets = []
             for side in ['Over', 'Under']:
                 odds = total_odds[side]
-                implied_prob = calculate_implied_probability(odds)
-                # For model probability: total line is often 50/50, but adjust slightly by comparing model probs
-                # Simplified assumption: model total prob 55% for Over if home_prob + away_prob > 1.05 else 45%
-                model_total_prob = 0.55 if (home_prob + away_prob) > 1.05 else 0.45
+                implied = calculate_implied_probability(odds)
+                model_prob = 0.55 if (home_prob + away_prob) > 1.05 else 0.45
                 if side == 'Under':
-                    model_total_prob = 1 - model_total_prob
-                ev = calculate_ev(model_total_prob, odds)
-                edge = calculate_edge(model_total_prob, implied_prob)
+                    model_prob = 1 - model_prob
+                ev = calculate_ev(model_prob, odds)
+                edge = calculate_edge(model_prob, implied)
                 if ev > 0:
-                    pick_str = f"{side} {total_point}"
                     total_bets.append({
-                        'pick': pick_str,
-                        'odds': odds,
-                        'ev': ev,
-                        'implied_prob': implied_prob,
-                        'model_prob': model_total_prob,
-                        'edge': edge,
-                        'vig': vig_total
+                        'pick': f"{side} {total_point}", 'odds': odds, 'ev': ev,
+                        'implied_prob': implied, 'model_prob': model_prob,
+                        'edge': edge, 'vig': vig_total
                     })
 
             if not total_bets:
                 continue
             best_total = max(total_bets, key=lambda b: b['ev'])
 
-            # Compose alert message
-            header = f"⚾ *{away}* @ *{home}*\n🕒 {commence_str}\n\n"
+            # Format message
+            header = f"⚾ *{escape_markdown(away)}* @ *{escape_markdown(home)}*\n🕒 {escape_markdown(commence_str)}\n\n"
+            ml_section = format_bet_section('moneyline', **best_ml)
+            spread_section = format_bet_section('spread', **best_spread)
+            total_section = format_bet_section('total', **best_total)
 
-            ml_section = format_bet_section('moneyline', best_ml['pick'], best_ml['odds'], best_ml['ev'], best_ml['implied_prob'], best_ml['model_prob'], best_ml['edge'], best_ml['vig'])
-            spread_section = format_bet_section('spread', best_spread['pick'], best_spread['odds'], best_spread['ev'], best_spread['implied_prob'], best_spread['model_prob'], best_spread['edge'], best_spread['vig'])
-            total_section = format_bet_section('total', best_total['pick'], best_total['odds'], best_total['ev'], best_total['implied_prob'], best_total['model_prob'], best_total['edge'], best_total['vig'])
-
-            # Skip if any section is None (meaning no positive EV bet)
             if None in [ml_section, spread_section, total_section]:
                 continue
 
             message = header + ml_section + "\n\n" + spread_section + "\n\n" + total_section
-
             send_alert(message)
 
         except Exception as e:
