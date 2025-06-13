@@ -33,81 +33,77 @@ from datetime import datetime
 import pytz
 
 def fetch_bovada_mlb_odds():
-    url = "https://www.bovada.lv/services/sports/event/v2/us/en/baseball/mlb"
-    
-    # 🛡️ Free Proxy Config
-    proxies = {
-        "http": "http://208.102.24.225:80",
-        "https": "http://208.102.24.225:80"
-    }
+    url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
+    proxy_list = [
+        "http://208.102.24.225:80",
+        "http://138.201.125.229:8118",  # Germany
+        "http://198.27.74.6:9300",     # USA
+        "http://177.53.152.81:8080",   # Brazil
+    ]
 
-    try:
-        response = requests.get(url, proxies=proxies, timeout=10)
-    except requests.RequestException as e:
-        print(f"❌ Proxy connection error: {e}")
-        return []
+    for proxy_url in proxy_list:
+        proxies = {"http": proxy_url, "https": proxy_url}
+        try:
+            response = requests.get(url, proxies=proxies, timeout=10)
+        except requests.RequestException as e:
+            print(f"⚠️ Proxy {proxy_url} connection error: {e}")
+            continue
 
-    if response.status_code != 200 or not response.text.strip():
-        print(f"❌ Failed to fetch odds — status {response.status_code}")
-        print("⚠️ Response:", response.text[:200])
-        return []
-
-    games = []
-
-    for game in data:
-        teams = game["competitors"]
-        home = next(t["name"] for t in teams if t["home"])
-        away = next(t["name"] for t in teams if not t["home"])
+        if response.status_code != 200 or not response.text.strip():
+            print(f"⚠️ Proxy {proxy_url} returned status {response.status_code}")
+            continue
 
         try:
-            start_time_utc = datetime.fromisoformat(game["startTime"].replace("Z", "+00:00"))
-        except:
-            start_time_utc = datetime.utcfromtimestamp(int(game["startTime"]) / 1000)
+            raw = response.json()
+            data = raw[0]["events"]
+        except Exception as e:
+            print(f"⚠️ Proxy {proxy_url} JSON parse error: {e}")
+            continue
 
-        cdt = pytz.timezone("America/Chicago")
-        start_time_cdt = start_time_utc.astimezone(cdt).strftime("%I:%M %p %Z")
+        # Success! Process data below...
+        central = pytz.timezone("America/Chicago")
+        games = []
+        for g in data:
+            try:
+                home = next(team["name"] for team in g["competitors"] if team["home"])
+                away = next(team["name"] for team in g["competitors"] if not team["home"])
+                start_dt = datetime.fromtimestamp(g["startTime"]/1000, tz=central)
+                start_cdt = start_dt.strftime("%b %d, %I:%M %p CDT")
 
-        markets = game["displayGroups"]
-        moneyline, spread, total = None, None, None
+                ml, sp, tot = None, None, None
+                for grp in g.get("displayGroups", []):
+                    for m in grp.get("markets", []):
+                        desc = m.get("description", "").lower()
+                        if "moneyline" in desc: ml = m.get("outcomes", [])
+                        if "spread" in desc: sp = m.get("outcomes", [])
+                        if "total" in desc: tot = m.get("outcomes", [])
 
-        for market in markets:
-            for market_item in market.get("markets", []):
-                desc = market_item.get("description", "").lower()
+                def ex(os):
+                    out = {}
+                    for o in os or []:
+                        nm = o.get("description")
+                        od = o.get("price", {}).get("american")
+                        od = 100 if od == "EVEN" else int(od or 0)
+                        out[nm] = {"odds": od, "raw": o}
+                    return out
 
-                if "moneyline" in desc:
-                    moneyline = market_item.get("outcomes", [])
-                elif "spread" in desc:
-                    spread = market_item.get("outcomes", [])
-                elif "total" in desc:
-                    total = market_item.get("outcomes", [])
+                games.append({
+                    "home_team": home,
+                    "away_team": away,
+                    "start_time_cdt": start_cdt,
+                    "moneyline": ex(ml),
+                    "spread": ex(sp),
+                    "total": ex(tot),
+                })
+            except Exception as e:
+                print(f"⚠️ Event parse error: {e}")
+                continue
 
-        def extract_odds(outcomes):
-            odds_dict = {}
-            for o in outcomes:
-                team = o.get("description")
-                odds = o.get("price", {}).get("american")
-                try:
-                    odds = 100 if odds == "EVEN" else int(odds)
-                except:
-                    odds = None
-                odds_dict[team] = {
-                    "odds": odds,
-                    "raw": o
-                }
-            return odds_dict
+        return games  # Exit once we get valid data
 
-        game_data = {
-            "home": home,
-            "away": away,
-            "start_time_cdt": start_time_cdt,
-            "moneyline": extract_odds(moneyline or []),
-            "spread": extract_odds(spread or []),
-            "total": extract_odds(total or [])
-        }
-
-        games.append(game_data)
-
-    return games
+    # If we tried all proxies and none worked:
+    print("❌ All proxies failed. No data fetched.")
+    return []
     
 def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
     emoji = "🔥" if ev > 0 else "⚠️"
