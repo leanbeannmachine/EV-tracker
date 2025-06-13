@@ -35,13 +35,13 @@ def fetch_bovada_mlb_odds():
 
     bovada_url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"
     scraperapi_url = (
-        f"http://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}"
+        f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&render=true&url={bovada_url}"
         f"&url={bovada_url}"
         f"&render=true&premium=true"
     )
 
     try:
-        response = requests.get(scraperapi_url, timeout=15)
+        response = requests.get(scraperapi_url, timeout=30)
         response.raise_for_status()
         data = response.json()
 
