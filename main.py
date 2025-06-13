@@ -36,34 +36,35 @@ import requests
 from datetime import datetime
 import pytz
 
-def fetch_bovada_mlb_odds():
-    url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
-    proxy_list = [
-        "http://45.55.67.160:3128",   # DigitalOcean (US)
-        "http://51.158.68.26:8811",   # France
-        "http://159.89.132.167:8989", # High uptime US
-    ]
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+import requests
+import json
 
-    for proxy in proxy_list:
-        try:
-            print(f"🌐 Trying proxy {proxy}...")
-            response = requests.get(url, headers=headers, proxies={"http": proxy, "https": proxy}, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            print("✅ Successfully fetched odds via proxy.")
-            break
-        except requests.exceptions.ProxyError as e:
-            print(f"⚠️ Proxy {proxy} connection error: {e}")
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Request failed: {e}")
-        except ValueError as e:
-            print(f"❌ Failed to parse Bovada JSON: {e}")
-            print(f"⚠️ Raw response: {response.text if response else 'No response'}")
-    else:
-        print("❌ All proxies failed. No data fetched.")
+SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"  # Replace with your real key
+
+def fetch_bovada_mlb_odds():
+    print("📡 Fetching MLB odds using ScraperAPI...")
+
+    bovada_url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
+    scraperapi_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={bovada_url}"
+
+    try:
+        response = requests.get(scraperapi_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        if not data or "events" not in data[0]:
+            print("⚠️ Unexpected response structure:", data)
+            return []
+
+        print("✅ MLB odds fetched successfully.")
+        return data[0]["events"]
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ ScraperAPI error: {e}")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"❌ Failed to parse JSON: {e}")
+        print("⚠️ Raw response:", response.text)
         return []
 
     games = []
