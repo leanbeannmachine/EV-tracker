@@ -65,6 +65,49 @@ def fetch_oddsapi_mlb_odds():
 
     return games
 
+def send_alert(home_team, away_team, start_time, moneyline_odds, spread_odds, total_odds):
+    model_probs = get_model_probabilities(home_team, away_team)
+
+    # 💰 MONEYLINE
+    best_ml = max(moneyline_odds.items(), key=lambda x: expected_value(model_probs["moneyline"].get(x[0], 0), x[1]))
+    ml_team, ml_odds_val = best_ml
+    ml_prob = implied_prob(ml_odds_val)
+    ml_ev = expected_value(model_probs["moneyline"].get(ml_team, 0), ml_odds_val)
+    ml_edge = (model_probs["moneyline"].get(ml_team, 0) - ml_prob) * 100
+    ml_vig = calc_vig(implied_prob(moneyline_odds[home_team]), implied_prob(moneyline_odds[away_team]))
+
+    # 🧱 SPREAD
+    best_spread = max(spread_odds, key=lambda o: expected_value(model_probs["spread"].get(o["name"], 0), o["price"]))
+    sp_team = best_spread["name"]
+    sp_odds = best_spread["price"]
+    sp_prob = implied_prob(sp_odds)
+    sp_ev = expected_value(model_probs["spread"].get(sp_team, 0), sp_odds)
+    sp_edge = (model_probs["spread"].get(sp_team, 0) - sp_prob) * 100
+    sp_vig = calc_vig(*[implied_prob(o["price"]) for o in spread_odds[:2]])
+
+    # 🔥 TOTAL
+    best_total = max(total_odds, key=lambda o: expected_value(model_probs["total"].get(o["name"], 0), o["price"]))
+    to_side = best_total["name"]
+    to_odds = best_total["price"]
+    to_prob = implied_prob(to_odds)
+    to_ev = expected_value(model_probs["total"].get(to_side, 0), to_odds)
+    to_edge = (model_probs["total"].get(to_side, 0) - to_prob) * 100
+    to_vig = calc_vig(*[implied_prob(o["price"]) for o in total_odds[:2]])
+
+    # 🕒 Game time
+    time_str = start_time.strftime("%I:%M %p %Z")
+
+    # 📝 Build message
+    msg = f"""⚾ {away_team} @ {home_team}
+🕒 {time_str} CDT
+
+{format_bet_section("Moneyline", ml_team, ml_odds_val, ml_ev, ml_prob, model_probs["moneyline"].get(ml_team, 0), ml_edge, ml_vig)}
+{format_bet_section("Spread", f"{best_spread['name']} {best_spread['point']:+}", sp_odds, sp_ev, sp_prob, model_probs["spread"].get(sp_team, 0), sp_edge, sp_vig)}
+{format_bet_section("Total", f"{to_side} {best_total['point']}", to_odds, to_ev, to_prob, model_probs["total"].get(to_side, 0), to_edge, to_vig)}
+"""
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
+    print(f"✅ Alert sent for {away_team} @ {home_team}")
+
 # 🧠 Parse and send alerts
 def process_and_alert(games):
     for game in games:
