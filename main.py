@@ -32,7 +32,7 @@ def expected_value(prob, odds):
 
 def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
-    url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
+    url = "https://www.bovada.lv/services/sports/event/v2/en-us/sports/baseball/mlb"
     proxy_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}"
 
     try:
