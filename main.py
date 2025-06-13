@@ -9,7 +9,7 @@ import json
 CDT = pytz.timezone("America/Chicago")
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
-SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"  # Replace with yours if needed
+SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"
 
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
@@ -34,12 +34,15 @@ def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
 
     bovada_url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"
-    scraperapi_url = f"http://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}&url={bovada_url}&render=true&premium=true"
+    scraperapi_url = f"https://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}&url={bovada_url}"
 
     try:
         response = requests.get(scraperapi_url, timeout=20)
         response.raise_for_status()
         data = response.json()
+
+        print("🧪 Raw ScraperAPI Response:")
+        print(json.dumps(data, indent=2))  # Debug line
 
         if not data or not isinstance(data, list):
             print("⚠️ Unexpected response structure:", data)
@@ -117,13 +120,12 @@ def extract_game_data(event):
                         edge = model - p
                         total_data.setdefault("candidates", []).append((side, label, odds, ev, p, model, edge))
 
-        # Pick best values
         if "candidates" in spread_data:
             best_spread = max(spread_data["candidates"], key=lambda x: x[3])
             spread_data = {
                 "label": best_spread[1],
                 "odds": best_spread[2],
-                "best_value": (best_spread[0], best_spread[2], best_spread[3], best_spread[4], best_spread[5], best_spread[6], calc_vig(*[implied_prob(best_spread[2]), 1 - implied_prob(best_spread[2])]))
+                "best_value": (best_spread[0], best_spread[2], best_spread[3], best_spread[4], best_spread[5], best_spread[5] - best_spread[4], calc_vig(implied_prob(best_spread[2]), 1 - implied_prob(best_spread[2])))
             }
 
         if "candidates" in total_data:
@@ -132,7 +134,7 @@ def extract_game_data(event):
                 "label": best_total[1],
                 "side": best_total[0],
                 "odds": best_total[2],
-                "best_value": (best_total[0], best_total[2], best_total[3], best_total[4], best_total[5], best_total[6], calc_vig(*[implied_prob(best_total[2]), 1 - implied_prob(best_total[2])]))
+                "best_value": (best_total[0], best_total[2], best_total[3], best_total[4], best_total[5], best_total[5] - best_total[4], calc_vig(implied_prob(best_total[2]), 1 - implied_prob(best_total[2])))
             }
 
         return {
