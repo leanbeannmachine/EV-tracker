@@ -48,18 +48,16 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 
 # 🚀 Pull odds from OddsAPI
 def fetch_oddsapi_mlb_odds():
-    url = (
-        f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
-        f"?regions={REGIONS}&markets={MARKETS}&oddsFormat=american&apiKey={ODDS_API_KEY}"
-    )
-
-    try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        return [g for g in resp.json() if any(b['key'] == BOOKMAKER for b in g['bookmakers'])]
-    except Exception as e:
-        print(f"❌ Error fetching from OddsAPI: {e}")
-        return []
+    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds" \
+          f"?regions=us&markets=h2h,spreads,totals&oddsFormat=american&apiKey={ODDS_API_KEY}"
+    resp = requests.get(url, timeout=15)
+    print("Status:", resp.status_code, "Remaining:", resp.headers.get('x-requests-remaining'))
+    print("Sample data:", resp.text[:500])
+    data = resp.json()
+    print("Game count:", len(data))
+    for g in data:
+        print(g['home_team'], "vs", g['away_team'], ":", [b['key'] for b in g['bookmakers']])
+    return data
 
 # 🧠 Parse and send alerts
 def process_and_alert(games):
