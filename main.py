@@ -107,11 +107,11 @@ def process_games():
     if resp.status_code != 200:
         print(f"Failed to fetch odds: {resp.status_code} {resp.text}")
         return
-
+    
     games = resp.json()
     print(f"Status: {resp.status_code} Remaining: {resp.headers.get('x-requests-remaining')}")
     print(f"Game count: {len(games)}")
-
+    
     for game in games:
         try:
             home = game['home_team']
@@ -134,94 +134,139 @@ def process_games():
             if home not in ml_odds or away not in ml_odds:
                 continue
 
-            # Spread
+            # Spreads
             spreads = markets['spreads']['outcomes']
             spread_odds = {o['name']: {'price': o['price'], 'point': o['point']} for o in spreads}
             if home not in spread_odds or away not in spread_odds:
                 continue
 
-            # Total
+            # Totals
             totals = markets['totals']['outcomes']
+            if 'Over' not in [o['name'] for o in totals] or 'Under' not in [o['name'] for o in totals]:
+                continue
             total_point = totals[0]['point']
             total_odds = {o['name']: o['price'] for o in totals}
-            if 'Over' not in total_odds or 'Under' not in total_odds:
-                continue
 
-            # Model probabilities
+            # Model
             home_prob, away_prob = get_model_probabilities(home, away)
 
             # Vig
-            vig_ml = calculate_vig([calculate_implied_probability(ml_odds[home]),
-                                    calculate_implied_probability(ml_odds[away])])
-            vig_spread = calculate_vig([calculate_implied_probability(spread_odds[home]['price']),
-                                        calculate_implied_probability(spread_odds[away]['price'])])
-            vig_total = calculate_vig([calculate_implied_probability(total_odds['Over']),
-                                       calculate_implied_probability(total_odds['Under'])])
+            vig_ml = calculate_vig([
+                calculate_implied_probability(ml_odds[home]),
+                calculate_implied_probability(ml_odds[away])
+            ])
+            vig_spread = calculate_vig([
+                calculate_implied_probability(spread_odds[home]['price']),
+                calculate_implied_probability(spread_odds[away]['price'])
+            ])
+            vig_total = calculate_vig([
+                calculate_implied_probability(total_odds['Over']),
+                calculate_implied_probability(total_odds['Under'])
+            ])
 
-            # Moneyline bets
+            # Moneyline best bet
             ml_bets = []
             for team, prob in zip([home, away], [home_prob, away_prob]):
                 odds = ml_odds[team]
-                implied = calculate_implied_probability(odds)
+                implied_prob = calculate_implied_probability(odds)
                 ev = calculate_ev(prob, odds)
-                edge = calculate_edge(prob, implied)
+                edge = calculate_edge(prob, implied_prob)
                 if ev > 0:
                     ml_bets.append({
-                        'pick': team, 'odds': odds, 'ev': ev,
-                        'implied_prob': implied, 'model_prob': prob,
-                        'edge': edge, 'vig': vig_ml
+                        'pick': team,
+                        'odds': odds,
+                        'ev': ev,
+                        'implied_prob': implied_prob,
+                        'model_prob': prob,
+                        'edge': edge,
+                        'vig': vig_ml
                     })
-
             if not ml_bets:
                 continue
             best_ml = max(ml_bets, key=lambda b: b['ev'])
 
-            # Spread bets
+            # Spread best bet
             spread_bets = []
             for team in [home, away]:
                 odds = spread_odds[team]['price']
                 point = spread_odds[team]['point']
-                implied = calculate_implied_probability(odds)
                 prob = home_prob if team == home else away_prob
+                implied_prob = calculate_implied_probability(odds)
                 ev = calculate_ev(prob, odds)
-                edge = calculate_edge(prob, implied)
+                edge = calculate_edge(prob, implied_prob)
                 if ev > 0:
                     spread_bets.append({
-                        'pick': f"{team} {point:+}", 'odds': odds, 'ev': ev,
-                        'implied_prob': implied, 'model_prob': prob,
-                        'edge': edge, 'vig': vig_spread
+                        'pick': f"{team} {point:+}",
+                        'odds': odds,
+                        'ev': ev,
+                        'implied_prob': implied_prob,
+                        'model_prob': prob,
+                        'edge': edge,
+                        'vig': vig_spread
                     })
-
             if not spread_bets:
                 continue
             best_spread = max(spread_bets, key=lambda b: b['ev'])
 
-            # Total bets
+            # Totals best bet
             total_bets = []
             for side in ['Over', 'Under']:
                 odds = total_odds[side]
-                implied = calculate_implied_probability(odds)
-                model_prob = 0.55 if (home_prob + away_prob) > 1.05 else 0.45
+                implied_prob = calculate_implied_probability(odds)
+                model_total_prob = 0.55 if (home_prob + away_prob) > 1.05 else 0.45
                 if side == 'Under':
-                    model_prob = 1 - model_prob
-                ev = calculate_ev(model_prob, odds)
-                edge = calculate_edge(model_prob, implied)
+                    model_total_prob = 1 - model_total_prob
+                ev = calculate_ev(model_total_prob, odds)
+                edge = calculate_edge(model_total_prob, implied_prob)
                 if ev > 0:
                     total_bets.append({
-                        'pick': f"{side} {total_point}", 'odds': odds, 'ev': ev,
-                        'implied_prob': implied, 'model_prob': model_prob,
-                        'edge': edge, 'vig': vig_total
+                        'pick': f"{side} {total_point}",
+                        'odds': odds,
+                        'ev': ev,
+                        'implied_prob': implied_prob,
+                        'model_prob': model_total_prob,
+                        'edge': edge,
+                        'vig': vig_total
                     })
-
             if not total_bets:
                 continue
             best_total = max(total_bets, key=lambda b: b['ev'])
 
-            # Format message
-            header = f"⚾ *{escape_markdown(away)}* @ *{escape_markdown(home)}*\n🕒 {escape_markdown(commence_str)}\n\n"
-            ml_section = format_bet_section('moneyline', **best_ml)
-            spread_section = format_bet_section('spread', **best_spread)
-            total_section = format_bet_section('total', **best_total)
+            # Format messages
+            header = f"⚾ *{away}* @ *{home}*\n🕒 {commence_str}\n\n"
+
+            ml_section = format_bet_section(
+                'moneyline',
+                pick=best_ml['pick'],
+                odds_decimal=best_ml['odds'],
+                ev=best_ml['ev'],
+                implied_prob=best_ml['implied_prob'],
+                model_prob=best_ml['model_prob'],
+                edge=best_ml['edge'],
+                vig=best_ml['vig']
+            )
+
+            spread_section = format_bet_section(
+                'spread',
+                pick=best_spread['pick'],
+                odds_decimal=best_spread['odds'],
+                ev=best_spread['ev'],
+                implied_prob=best_spread['implied_prob'],
+                model_prob=best_spread['model_prob'],
+                edge=best_spread['edge'],
+                vig=best_spread['vig']
+            )
+
+            total_section = format_bet_section(
+                'total',
+                pick=best_total['pick'],
+                odds_decimal=best_total['odds'],
+                ev=best_total['ev'],
+                implied_prob=best_total['implied_prob'],
+                model_prob=best_total['model_prob'],
+                edge=best_total['edge'],
+                vig=best_total['vig']
+            )
 
             if None in [ml_section, spread_section, total_section]:
                 continue
@@ -231,6 +276,6 @@ def process_games():
 
         except Exception as e:
             print(f"Error processing game {game.get('away_team')} vs {game.get('home_team')}: {e}")
-
+            
 if __name__ == '__main__':
     process_games()
