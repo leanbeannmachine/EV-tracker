@@ -1,292 +1,161 @@
-import os
-import time
 import requests
-import pytz
 from datetime import datetime
+import pytz
+import math
 import telegram
 
-def send_telegram_alert(message):
-    bot_token = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
-    chat_id = "964091254"
-    
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "Markdown"
+CDT = pytz.timezone("America/Chicago")
+
+# Replace with your actual Telegram bot/token/chat_id
+TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
+bot = telegram.Bot(token=TELEGRAM_TOKEN)
+
+# Model probabilities — placeholder, replace with your actual model logic
+def get_model_probabilities(team1, team2):
+    return {
+        "moneyline": {team1: 0.52, team2: 0.48},
+        "spread": {team1: 0.53, team2: 0.47},
+        "total": {"Over": 0.58, "Under": 0.42}
     }
-    try:
-        response = requests.post(url, json=payload)
-        if response.status_code != 200:
-            print("Failed to send Telegram message:", response.text)
-    except Exception as e:
-        print("Telegram error:", e)
 
-def calculate_vig_percent(odds1, odds2):
-    def implied_prob(odds):
-        return abs(odds) / (abs(odds) + 100) if odds < 0 else 100 / (odds + 100)
-    prob1 = implied_prob(odds1)
-    prob2 = implied_prob(odds2)
-    vig = (prob1 + prob2 - 1.0) * 100
-    return round(vig, 2)
-
-# ── CONFIG ──
-API_KEY           = "8aed519f266c2ab6611693b5c978db8c"      # OddsAPI key
-TELEGRAM_TOKEN    = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"  # Telegram bot token
-TELEGRAM_CHAT_ID  = "964091254"    # Telegram chat ID
-SPORT_KEY         = "baseball_mlb"                   # MLB only
-BOOKMAKERS        = "fanduel,bovada"
-MARKETS           = "h2h,spreads,totals"
-REGION            = "us"
-ODDS_FORMAT       = "american"
-EV_THRESHOLD_GOOD = 5.0   # minimum EV% for GOOD VALUE
-EV_THRESHOLD_BEST = 7.0   # minimum EV% for BEST VALUE
-TIMEZONE          = pytz.timezone("America/New_York")
-
-# ── HELPERS ──
 def implied_prob(odds):
-    odds = int(odds)
-    if odds > 0:
-        return 100 / (odds + 100)
-    return -odds / (-odds + 100)
+    return abs(odds) / (abs(odds) + 100) if odds > 0 else 100 / (abs(odds) + 100)
 
-# ── MLB TEAM ID HELPER ──
-def get_mlb_team_ids():
-    import requests
+def calc_vig(p1, p2):
+    return p1 + p2 - 1
+
+def expected_value(prob, odds):
+    return ((prob * (abs(odds) / 100)) - (1 - prob)) * 100 if odds > 0 else ((prob * 100 / abs(odds)) - (1 - prob)) * 100
+
+def fetch_bovada_mlb_odds():
+    url = "https://www.bovada.lv/services/sports/event/v2/events/A/description/baseball/mlb"
     try:
-        r = requests.get("https://statsapi.mlb.com/api/v1/teams?sportId=1")
-        r.raise_for_status()
-        data = r.json()
-        return {team["name"]: team["id"] for team in data["teams"]}
+        res = requests.get(url, timeout=10)
+        data = res.json()[0]["events"]
     except Exception as e:
-        print("MLB Team ID fetch error:", e)
-        return {}
+        print(f"Failed to fetch odds: {e}")
+        return []
 
-def ev_and_edge(model_prob, odds):
-    imp = implied_prob(odds)
-    edge = model_prob - imp
-    ev = edge * 100
-    return round(ev, 1), round(imp * 100, 1), round(edge * 100, 1)
+    games = []
+    for game in data:
+        teams = game["competitors"]
+        home = next(t for t in teams if t["home"])
+        away = next(t for t in teams if not t["home"])
+        start_time_utc = datetime.fromisoformat(game["startTime"].replace("Z", "+00:00"))
+        start_time_cdt = start_time_utc.astimezone(CDT)
 
-def ev_label(ev):
-    if ev >= EV_THRESHOLD_BEST:
-        return "💎🟢 BEST VALUE"
-    if ev >= EV_THRESHOLD_GOOD:
-        return "🔝🟡 GOOD VALUE"
-    return None
+        display_groups = game.get("displayGroups", [])
+        moneyline = spread = total = None
 
-def fmt_time(iso):
-    dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TIMEZONE)
-    return dt.strftime("%b %d, %I:%M %p CDT")
+        for group in display_groups:
+            for market in group.get("markets", []):
+                desc = market.get("description", "").lower()
+                if "moneyline" in desc:
+                    moneyline = market.get("outcomes", [])
+                elif "run line" in desc:
+                    spread = market.get("outcomes", [])
+                elif "total" in desc:
+                    total = market.get("outcomes", [])
 
-def format_american(odds):
-    odds = int(odds)
-    return f"+{odds}" if odds > 0 else str(odds)
+        def extract_odds(outcomes):
+            if not outcomes:
+                return None
+            result = {}
+            for outcome in outcomes:
+                desc = outcome.get("description")
+                odds = outcome.get("price", {}).get("american")
+                line = outcome.get("price", {}).get("handicap")
+                if desc and odds is not None:
+                    result[desc] = {
+                        "odds": int(odds),
+                        "line": float(line) if line is not None else None
+                    }
+            return result
 
-# ── FETCH ODDS ──
-def fetch_odds():
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds"
-    params = {
-        "apiKey": API_KEY,
-        "regions": REGION,
-        "markets": MARKETS,
-        "oddsFormat": ODDS_FORMAT,
-        "bookmakers": BOOKMAKERS
-    }
-    r = requests.get(url, params=params)
-    r.raise_for_status()
-    return r.json()
+        games.append({
+            "home_team": home["name"],
+            "away_team": away["name"],
+            "start_time": start_time_cdt.strftime("%b %d, %I:%M %p CDT"),
+            "moneyline": extract_odds(moneyline),
+            "spread": extract_odds(spread),
+            "total": extract_odds(total),
+        })
 
-# ── BUILD & SEND ALERT ──
-def format_bet_section(title, pick, odds, ev, imp_prob, model_prob, vig):
-    ev_display = f"{ev:+.1f}%"
-    edge_display = f"{(model_prob - imp_prob):+.1f}%"
-    vig_display = f"{vig:.2f}%"
-    
-    return f"""📊 {title.upper()} BET
-🔥 Pick: {pick}
-💵 Odds: {format_american(odds)}
-📈 EV: {ev_display} 💎🟢 BEST VALUE
-🧮 Implied Prob: {imp_prob:.1f}%
-🧠 Model Prob: {model_prob:.1f}%
-🔍 Edge: {edge_display}
-⚖️ Vig: {vig_display}
+    return games
+
+def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
+    emoji = "🔥" if ev > 0 else "⚠️"
+    return f"""📊 {bet_type.upper()} BET
+{emoji} Pick: {pick}
+💵 Odds: {odds}
+📈 EV: {ev:+.1f}% 💎🟢 BEST VALUE
+🧮 Implied Prob: {imp:.1%}
+🧠 Model Prob: {model_prob:.1%}
+🔍 Edge: {edge:+.1f}%
+⚖️ Vig: {vig:.2%}
 ⚾ ——————"""
 
-def send_alert(game, best):
-    try:
-        home = game["home_team"]
-        away = game["away_team"]
-        game_time = datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(TIMEZONE)
-        game_time_str = game_time.strftime("%b %d, %I:%M %p CDT")
+def send_alert(game):
+    home = game["home_team"]
+    away = game["away_team"]
+    start = game["start_time"]
+    model = get_model_probabilities(home, away)
 
-        # Extract best bets by category
-        ml = best.get("h2h")
-        spread = best.get("spreads")
-        total = best.get("totals")
+    # MONEYLINE
+    ml_data = game["moneyline"]
+    if ml_data:
+        ml1, ml2 = list(ml_data.keys())
+        odds1, odds2 = ml_data[ml1]["odds"], ml_data[ml2]["odds"]
+        imp1, imp2 = implied_prob(odds1), implied_prob(odds2)
+        vig = calc_vig(imp1, imp2)
+        best = ml1 if expected_value(model["moneyline"][ml1], odds1) > expected_value(model["moneyline"][ml2], odds2) else ml2
+        best_odds = ml_data[best]["odds"]
+        ev = expected_value(model["moneyline"][best], best_odds)
+        edge = model["moneyline"][best] - implied_prob(best_odds)
+        ml_section = format_bet_section("moneyline", best, best_odds, ev, implied_prob(best_odds), model["moneyline"][best], edge * 100, vig)
+    else:
+        ml_section = "❌ No moneyline available"
 
-        # Format odds for header
-        away_ml_odds = format_american(ml["odds"]) if ml and ml["team"] == away else "N/A"
-        home_ml_odds = format_american(ml["odds"]) if ml and ml["team"] == home else "N/A"
+    # SPREAD
+    spread_data = game["spread"]
+    if spread_data:
+        best = max(spread_data.items(), key=lambda x: expected_value(model["spread"].get(x[0], 0.5), x[1]["odds"]))[0]
+        ev = expected_value(model["spread"].get(best, 0.5), spread_data[best]["odds"])
+        edge = model["spread"].get(best, 0.5) - implied_prob(spread_data[best]["odds"])
+        imp = implied_prob(spread_data[best]["odds"])
+        vig = 0  # Optional to calculate spread vig
+        spread_section = format_bet_section("spread", f"{best} {spread_data[best]['line']}", spread_data[best]["odds"], ev, imp, model["spread"].get(best, 0.5), edge * 100, vig)
+    else:
+        spread_section = "❌ No spread available"
 
-        # Build message header
-        message = f"""🏟️ {away} vs {home}
-📅 {game_time_str}
-🏆 ML: {away}: {away_ml_odds} | {home}: {home_ml_odds}
-📏 Spread: {spread['team']} {spread['point']} @ {format_american(spread['odds']) if spread else 'N/A'}
-📊 Total: {total['team']} {total['point']} @ {format_american(total['odds']) if total else 'N/A'}
+    # TOTAL
+    total_data = game["total"]
+    if total_data:
+        best = max(total_data.items(), key=lambda x: expected_value(model["total"].get(x[0], 0.5), x[1]["odds"]))[0]
+        ev = expected_value(model["total"].get(best, 0.5), total_data[best]["odds"])
+        edge = model["total"].get(best, 0.5) - implied_prob(total_data[best]["odds"])
+        imp = implied_prob(total_data[best]["odds"])
+        vig = 0
+        total_section = format_bet_section("totals", f"{best} {total_data[best]['line']}", total_data[best]["odds"], ev, imp, model["total"].get(best, 0.5), edge * 100, vig)
+    else:
+        total_section = "❌ No total available"
 
-━━━━━━━━━━━━━━━━━━
-"""
-
-        # Append each section if it's GOOD VALUE
-        if ml and ev_label(ml["ev"]):
-            message += format_bet_section(
-                "moneyline",
-                ml["team"],
-                format_american(ml["odds"]),
-                ml["ev"],
-                ml["imp_prob"],
-                ml["model_prob"],
-                ml["vig"]
-            ) + "\n"
-
-        if spread and ev_label(spread["ev"]):
-            message += format_bet_section(
-                "spread",
-                f"{spread['team']} {spread['point']}",
-                format_american(spread["odds"]),
-                spread["ev"],
-                spread["imp_prob"],
-                spread["model_prob"],
-                spread["vig"]
-            ) + "\n"
-
-        if total and ev_label(total["ev"]):
-            message += format_bet_section(
-                "totals",
-                f"{total['team']} {total['point']}",
-                format_american(total["odds"]),
-                total["ev"],
-                total["imp_prob"],
-                total["model_prob"],
-                total["vig"]
-            )
-
-        # Send only if there's something worth alerting
-        if "BEST VALUE" in message:
-            send_telegram_alert(message)
-
-    except Exception as e:
-        print(f"Error processing game: {away} vs {home} —", e)
-    
-# ── MAIN ──
-def main():
-    try:
-        games = fetch_odds()
-    except Exception as e:
-        print("Fetch error:", e)
-        return
-
-    team_ids = get_mlb_team_ids()  # ✅ Fetch MLB team IDs once
-    today = datetime.now(TIMEZONE).date()  # ✅ Get today's date
-
-    for g in games:
-        home = g["home_team"]
-        away = g["away_team"]
-
-        if home not in team_ids or away not in team_ids:
-            continue
-
-        try:
-            game_time = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00")).astimezone(TIMEZONE)
-        except Exception as e:
-            print(f"Time parse error for {away} vs {home}:", e)
-            continue
-
-        if game_time.date() != today:
-            continue
-
-        try:
-            bookmaker = g['bookmakers'][0]
-            markets = {m['key']: m for m in bookmaker['markets']}
-
-            # === MONEYLINE ===
-            ml = markets['h2h']
-            ml_home = ml['outcomes'][0]['price']
-            ml_away = ml['outcomes'][1]['price']
-            vig_ml = calculate_vig_percent(ml_home, ml_away)
-
-            # === SPREAD ===
-            spread = markets['spreads']
-            sp_home = spread['outcomes'][0]
-            sp_away = spread['outcomes'][1]
-            spread_pick = sp_home['name']
-            spread_line = sp_home['point']
-            spread_odds = sp_home['price']
-            spread_opposite_odds = sp_away['price']
-            vig_spread = calculate_vig_percent(spread_odds, spread_opposite_odds)
-
-            # === TOTALS ===
-            total = markets['totals']
-            over = total['outcomes'][0]
-            under = total['outcomes'][1]
-            total_line = over['point']
-            total_odds = over['price']
-            total_opposite_odds = under['price']
-            vig_total = calculate_vig_percent(total_odds, total_opposite_odds)
-
-            # === MODEL + EV EXAMPLE LOGIC (TEMP) ===
-            model_prob_ml = 0.55
-            implied_prob_ml = 100 / (ml_away + 100) if ml_away > 0 else abs(ml_away) / (abs(ml_away) + 100)
-            ev_ml = round((model_prob_ml * (ml_away if ml_away > 0 else ml_away / 100)) - (1 - model_prob_ml), 4) * 100
-            edge_ml = round((model_prob_ml - implied_prob_ml) * 100, 1)
-
-            game_time_str = game_time.strftime('%b %d, %I:%M %p CDT')
-
-            # === BUILD & SEND ALERT ===
-            alert_msg = f"""
-🏟️ {home} vs {away}
-📅 {game_time_str}
-🏆 ML: {home}: {ml_home} | {away}: {ml_away}
-📏 Spread: {spread_pick} {spread_line} @ {spread_odds}
-📊 Total: {total_line} — Over @ {total_odds}
+    msg = f"""🏟️ {home} vs {away}
+📅 {start}
+🏆 ML: {ml_data.get(home, {}).get('odds', 'N/A')} | {away}: {ml_data.get(away, {}).get('odds', 'N/A')}
+📏 Spread: {spread_data.get(home, {}).get('line', 'N/A')} | {away}: {spread_data.get(away, {}).get('line', 'N/A')}
+📊 Total: {total_data.get('Over', {}).get('line', 'N/A')} — Over/Under
 
 ━━━━━━━━━━━━━━━━━━
-📊 MONEYLINE BET
-🔥 Pick: {away}
-💵 Odds: {ml_away}
-📈 EV: +{ev_ml:.1f}% 💎🟢 BEST VALUE
-🧮 Implied Prob: {implied_prob_ml*100:.1f}%
-🧠 Model Prob: {model_prob_ml*100:.1f}%
-🔍 Edge: +{edge_ml:.1f}%
-⚖️ Vig: {vig_ml}%
-⚾ ——————
-📊 SPREAD BET
-🔥 Pick: {spread_pick} {spread_line}
-💵 Odds: {spread_odds}
-📈 EV: +8.0% 💎🟢 BEST VALUE
-🧮 Implied Prob: 45.0%
-🧠 Model Prob: 53.0%
-🔍 Edge: +8.0%
-⚖️ Vig: {vig_spread}%
-⚾ ——————
-📊 TOTALS BET
-🔥 Pick: Over {total_line}
-💵 Odds: {total_odds}
-📈 EV: +10.4% 💎🟢 BEST VALUE
-🧮 Implied Prob: 47.6%
-🧠 Model Prob: 58.0%
-🔍 Edge: +10.4%
-⚖️ Vig: {vig_total}%
-⚾ ——————
-"""
+{ml_section}
+{spread_section}
+{total_section}"""
 
-            send_telegram_alert(alert_msg)  # Replace this with `print(alert_msg)` if testing
-            time.sleep(2)
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
 
-        except Exception as e:
-            print(f"Error processing game: {away} vs {home} — {e}")
-
+# MAIN RUN
 if __name__ == "__main__":
-    main()
+    games = fetch_bovada_mlb_odds()
+    for game in games:
+        send_alert(game)
