@@ -28,76 +28,133 @@ def calc_vig(p1, p2):
 def expected_value(prob, odds):
     return ((prob * (abs(odds) / 100)) - (1 - prob)) * 100 if odds > 0 else ((prob * 100 / abs(odds)) - (1 - prob)) * 100
 
+from datetime import datetime, timezone, timedelta
+import pytz
+import requests
+
 def fetch_bovada_mlb_odds():
-    import time  # Make sure this is imported at the top
+    url = "https://www.bovada.lv/services/sports/event/v2/en-us/featured/baseball/mlb"
+    response = requests.get(url)
+    data = response.json()[0]["events"]
 
-    url = "https://www.bovada.lv/services/sports/event/v2/events/A/description/baseball/mlb"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json",
-    }
-
-    for _ in range(3):  # retry up to 3 times
-        try:
-            res = requests.get(url, headers=headers, timeout=10)
-            if res.ok and res.text.strip():
-                data = res.json()[0]["events"]
-                break
-        except Exception as e:
-            print(f"Retrying... Error: {e}")
-            time.sleep(1)
-    else:
-        print("Failed to fetch odds after 3 attempts.")
-        return []
-
+    central = pytz.timezone("America/Chicago")
     games = []
 
     for game in data:
-        teams = game["competitors"]
-        home = next(t for t in teams if t["home"])
-        away = next(t for t in teams if not t["home"])
-        start_time_utc = datetime.fromtimestamp(game["startTime"] / 1000, tz=timezone.utc)
-        start_time_cdt = start_time_utc.astimezone(CDT)
+        try:
+            home = game["competitors"][0] if game["competitors"][0]["home"] else game["competitors"][1]
+            away = game["competitors"][1] if game["competitors"][0]["home"] else game["competitors"][0]
+            home_team = home["name"]
+            away_team = away["name"]
 
-        display_groups = game.get("displayGroups", [])
-        moneyline = spread = total = None
+            start_time_utc = datetime.fromtimestamp(game["startTime"] / 1000, tz=timezone.utc)
+            start_time_cdt = start_time_utc.astimezone(central)
 
-        for group in display_groups:
-            for market in group.get("markets", []):
+            display_markets = game.get("displayGroups", [])[0].get("markets", [])
+            moneyline, spread, total = None, None, None
+
+            for market in display_markets:
                 desc = market.get("description", "").lower()
                 if "moneyline" in desc:
-                    moneyline = market.get("outcomes", [])
-                elif "run line" in desc:
-                    spread = market.get("outcomes", [])
+                    moneyline = market
+                elif "spread" in desc:
+                    spread = market
                 elif "total" in desc:
-                    total = market.get("outcomes", [])
+                    total = market
 
-        def extract_odds(outcomes):
-            if not outcomes:
-                return None
-            result = {}
-            for outcome in outcomes:
-                desc = outcome.get("description")
-                odds = outcome.get("price", {}).get("american")
-                line = outcome.get("price", {}).get("handicap")
-                if desc and odds is not None:
-                    result[desc] = {
-                        "odds": 100 if odds == "EVEN" else int(odds),
-                        "line": float(line) if line is not None else None
+            def extract_odds(market):
+                if not market:
+                    return None
+
+                odds_data = {}
+                for outcome in market["outcomes"]:
+                    team = outcome["description"]
+                    odds = outcome["price"].get("american")
+
+                    # Handle "EVEN" odds
+                    if odds == "EVEN":
+                        odds = +100
+
+                    try:
+                        odds = int(odds)
+                    except:
+                        continue
+
+                    odds_data[team] = {
+                        "odds": odds,
+                        "implied_prob": round(100 / (abs(odds) + 100) * (100 if odds > 0 else abs(odds)), 1),
+                        # Placeholder values below for now — your model will update them
+                        "model_prob": 55.0,
+                        "ev_percent": 10.0,
+                        "edge_percent": 5.0,
+                        "vig_percent": 5.0,
+                        "pick": team,
+                        "is_best": False
                     }
-            return result
 
-        games.append({
-            "home_team": home["name"],
-            "away_team": away["name"],
-            "start_time": start_time_cdt.strftime("%b %d, %I:%M %p CDT"),
-            "moneyline": extract_odds(moneyline),
-            "spread": extract_odds(spread),
-            "total": extract_odds(total),
-        })
+                return odds_data
+
+            def extract_spread_or_total(market, type_):
+                if not market:
+                    return None
+                outcome = market["outcomes"][0]
+                odds = outcome["price"].get("american")
+                if odds == "EVEN":
+                    odds = +100
+                try:
+                    odds = int(odds)
+                except:
+                    odds = None
+                return {
+                    "label": outcome.get("handicap") if type_ == "spread" else market["outcomes"][0].get("description"),
+                    "side": outcome.get("description"),
+                    "odds": odds,
+                    "implied_prob": round(100 / (abs(odds) + 100) * (100 if odds > 0 else abs(odds)), 1) if odds else None,
+                    "model_prob": 58.0,
+                    "ev_percent": 10.0,
+                    "edge_percent": 7.0,
+                    "vig_percent": 6.0,
+                    "pick": outcome.get("description"),
+                    "is_best": False
+                }
+
+            moneyline_data = extract_odds(moneyline)
+            spread_data = extract_spread_or_total(spread, "spread")
+            total_data = extract_spread_or_total(total, "total")
+
+            # Pick best value bet per category
+            best_ml = None
+            if moneyline_data:
+                best_ml = max(moneyline_data.values(), key=lambda x: x["ev_percent"], default=None)
+                best_ml["is_best"] = True
+
+            best_spread = spread_data
+            best_total = total_data
+
+            games.append({
+                "home_team": home_team,
+                "away_team": away_team,
+                "start_time": start_time_utc,
+                "start_time_cdt": start_time_cdt,
+                "moneyline": {
+                    **moneyline_data,
+                    "best_value": best_ml
+                } if moneyline_data else None,
+                "spread": {
+                    **spread_data,
+                    "best_value": best_spread
+                } if spread_data else None,
+                "total": {
+                    **total_data,
+                    "best_value": best_total
+                } if total_data else None,
+            })
+        except Exception as e:
+            print(f"Failed to parse game: {e}")
+            continue
 
     return games
-
+    
 def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
     emoji = "🔥" if ev > 0 else "⚠️"
     return f"""📊 {bet_type.upper()} BET
