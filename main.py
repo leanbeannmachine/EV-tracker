@@ -29,15 +29,29 @@ def expected_value(prob, odds):
     return ((prob * (abs(odds) / 100)) - (1 - prob)) * 100 if odds > 0 else ((prob * 100 / abs(odds)) - (1 - prob)) * 100
 
 def fetch_bovada_mlb_odds():
+    import time  # Make sure this is imported at the top
+
     url = "https://www.bovada.lv/services/sports/event/v2/events/A/description/baseball/mlb"
-    try:
-        res = requests.get(url, timeout=10)
-        data = res.json()[0]["events"]
-    except Exception as e:
-        print(f"Failed to fetch odds: {e}")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json",
+    }
+
+    for _ in range(3):  # retry up to 3 times
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.ok and res.text.strip():
+                data = res.json()[0]["events"]
+                break
+        except Exception as e:
+            print(f"Retrying... Error: {e}")
+            time.sleep(1)
+    else:
+        print("Failed to fetch odds after 3 attempts.")
         return []
 
     games = []
+
     for game in data:
         teams = game["competitors"]
         home = next(t for t in teams if t["home"])
