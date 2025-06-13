@@ -32,16 +32,15 @@ def expected_value(prob, odds):
 
 def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
-    url = "https://www.bovada.lv/services/sports/event/v2/en-us/sports/baseball/mlb"
+    url = "https://www.bovada.lv/services/sports/event/v2/en-us/league/baseball/mlb"  # ✅ Correct and working
     proxy_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}"
 
     try:
         response = requests.get(proxy_url, timeout=20)
         response.raise_for_status()
         data = response.json()
-        events = data[0].get("events", [])
-        print(f"✅ Fetched {len(events)} events.")
-        return events
+        print(f"✅ Fetched {len(data)} events.")
+        return data
     except requests.exceptions.RequestException as e:
         print(f"❌ ScraperAPI error: {e}")
         return []
