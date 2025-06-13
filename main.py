@@ -113,7 +113,7 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 def send_alert(game):
     home = game["home_team"]
     away = game["away_team"]
-    start_time = game.get("start_time_cdt") or game.get("start_time")
+    start_time = game.get("start_time_cdt") or game.get("start_time") or datetime.now()
 
     ml_data = game.get("moneyline") or {}
     spread_data = game.get("spread") or {}
