@@ -82,7 +82,7 @@ def fetch_bovada_mlb_odds():
                 line = outcome.get("price", {}).get("handicap")
                 if desc and odds is not None:
                     result[desc] = {
-                        "odds": int(odds),
+                        "odds": 100 if odds == "EVEN" else int(odds),
                         "line": float(line) if line is not None else None
                     }
             return result
