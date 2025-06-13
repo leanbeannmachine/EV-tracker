@@ -6,9 +6,9 @@ import math
 
 # 📍 Config
 CDT = pytz.timezone("America/Chicago")
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
-ODDS_API_KEY = "YOUR_ODDS_API_KEY"
+TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
+TELEGRAM_CHAT_ID = "964091254"
+ODDS_API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
 SPORT = "baseball_mlb"
 REGIONS = "us"
 MARKETS = "h2h,spreads,totals"
