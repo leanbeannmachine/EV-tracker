@@ -37,19 +37,19 @@ def fetch_bovada_mlb_odds():
     
     # 🛡️ Free Proxy Config
     proxies = {
-        "http": "http://144.217.86.109:3129",
-        "https": "http://144.217.86.109:3129"
+        "http": "http://208.102.24.225:80",
+        "https": "http://208.102.24.225:80"
     }
 
     try:
         response = requests.get(url, proxies=proxies, timeout=10)
-        data = response.json()[0]["events"]
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         print(f"❌ Proxy connection error: {e}")
         return []
-    except Exception as e:
-        print(f"❌ Failed to parse Bovada JSON: {e}")
-        print("⚠️ Raw response:", response.text)
+
+    if response.status_code != 200 or not response.text.strip():
+        print(f"❌ Failed to fetch odds — status {response.status_code}")
+        print("⚠️ Response:", response.text[:200])
         return []
 
     games = []
