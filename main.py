@@ -43,9 +43,6 @@ def get_model_probabilities(home_team, away_team):
     return home_prob, away_prob
 
 def escape_markdown(text):
-    """
-    Escapes characters for MarkdownV2 formatting required by Telegram.
-    """
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
@@ -61,7 +58,99 @@ def send_alert(message):
     if response.status_code != 200:
         print(f"Telegram send failed: {response.text}")
 
-# === FORMATTER ===
+# === FETCH GAMES FROM ODDS API ===
+def fetch_games():
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds?regions=us&markets=h2h,spreads,totals&oddsFormat=decimal&bookmakers={BOOKMAKER_KEY}&apiKey={API_KEY}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Failed to fetch odds: {response.text}")
+        return []
+
+    data = response.json()
+    games = []
+
+    for game in data:
+        try:
+            home = game['home_team']
+            away = game['away_team']
+            commence = game['commence_time']
+            markets = game['bookmakers'][0]['markets']
+
+            moneyline = {}
+            spreads = []
+            totals = []
+
+            for market in markets:
+                if market['key'] == 'h2h':
+                    for outcome in market['outcomes']:
+                        moneyline[outcome['name']] = outcome['price']
+                elif market['key'] == 'spreads':
+                    for outcome in market['outcomes']:
+                        spreads.append({
+                            'name': outcome['name'],
+                            'point': outcome['point'],
+                            'price': outcome['price']
+                        })
+                elif market['key'] == 'totals':
+                    for outcome in market['outcomes']:
+                        totals.append({
+                            'name': outcome['name'],
+                            'point': outcome['point'],
+                            'price': outcome['price']
+                        })
+
+            games.append({
+                'home_team': home,
+                'away_team': away,
+                'commence_time': datetime.strptime(commence, "%Y-%m-%dT%H:%M:%SZ").timestamp(),
+                'moneyline': moneyline,
+                'spreads': spreads,
+                'totals': totals
+            })
+
+        except Exception as e:
+            print(f"Error parsing game: {e}")
+            continue
+
+    return games
+
+# === SELECT BEST BET ===
+def get_best_bet(bet_list):
+    if not bet_list:
+        return None
+
+    best_bet = None
+    best_ev = 0
+
+    for bet in bet_list:
+        pick = bet.get('name') if 'name' in bet else None
+        price = bet.get('price')
+        if not pick or price is None:
+            continue
+
+        decimal_odds = price
+        implied_prob = calculate_implied_probability(decimal_odds)
+        vig = calculate_vig([implied_prob, 1 - implied_prob])  # approx for 2-way
+        model_prob_home, model_prob_away = get_model_probabilities(pick, "opponent")
+        model_prob = model_prob_home if pick == "home" else model_prob_away
+        ev = calculate_ev(model_prob, decimal_odds)
+        edge = calculate_edge(model_prob, implied_prob)
+
+        if ev > best_ev and ev > 0:
+            best_ev = ev
+            best_bet = {
+                'pick': pick,
+                'odds_decimal': decimal_odds,
+                'implied_prob': implied_prob,
+                'model_prob': model_prob,
+                'ev': ev,
+                'edge': edge,
+                'vig': vig
+            }
+
+    return best_bet
+
+# === FORMAT EACH BET ===
 def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_prob, edge, vig):
     odds_american = decimal_to_american(odds_decimal)
     ev_pct = round(ev * 100, 1)
@@ -94,17 +183,17 @@ def format_bet_section(bet_type, pick, odds_decimal, ev, implied_prob, model_pro
     )
     return section
 
-# === MAIN FUNCTION ===
-def process_games(games, telegram_token, telegram_chat_id):
+# === PROCESS GAMES & ALERT ===
+def process_games(games):
     for game in games:
         try:
-            teams = f"{game['home_team']} @ {game['away_team']}"
-            game_time_cdt = datetime.fromtimestamp(game['commence_time'], tz=timezone.utc).astimezone(CENTRAL_TIMEZONE)
+            teams = f"{game['away_team']} @ {game['home_team']}"
+            game_time_cdt = datetime.fromtimestamp(game['commence_time'], tz=timezone.utc).astimezone(CENTRAL)
             game_time_str = game_time_cdt.strftime("%m/%d %I:%M %p CDT")
 
-            header = f"⚾ {teams}\n🕒 {game_time_str}\n"
+            header = f"⚾ {escape_markdown(teams)}\n🕒 {escape_markdown(game_time_str)}\n"
 
-            best_ml = get_best_bet(game['moneyline'])
+            best_ml = get_best_bet([{ 'name': k, 'price': v } for k, v in game['moneyline'].items()])
             best_spread = get_best_bet(game['spreads'])
             best_total = get_best_bet(game['totals'])
 
@@ -114,7 +203,7 @@ def process_games(games, telegram_token, telegram_chat_id):
                 ml_section = format_bet_section(
                     bet_type='moneyline',
                     pick=best_ml['pick'],
-                    odds=best_ml['odds'],
+                    odds_decimal=best_ml['odds_decimal'],
                     ev=best_ml['ev'],
                     implied_prob=best_ml['implied_prob'],
                     model_prob=best_ml['model_prob'],
@@ -127,8 +216,8 @@ def process_games(games, telegram_token, telegram_chat_id):
             if best_spread:
                 spread_section = format_bet_section(
                     bet_type='spread',
-                    pick=best_spread['pick'],
-                    odds=best_spread['odds'],
+                    pick=f"{best_spread['pick']} {best_spread.get('point', '')}",
+                    odds_decimal=best_spread['odds_decimal'],
                     ev=best_spread['ev'],
                     implied_prob=best_spread['implied_prob'],
                     model_prob=best_spread['model_prob'],
@@ -141,8 +230,8 @@ def process_games(games, telegram_token, telegram_chat_id):
             if best_total:
                 total_section = format_bet_section(
                     bet_type='total',
-                    pick=best_total['pick'],
-                    odds=best_total['odds'],
+                    pick=f"{best_total['pick']} {best_total.get('point', '')}",
+                    odds_decimal=best_total['odds_decimal'],
                     ev=best_total['ev'],
                     implied_prob=best_total['implied_prob'],
                     model_prob=best_total['model_prob'],
@@ -152,13 +241,15 @@ def process_games(games, telegram_token, telegram_chat_id):
                 if total_section:
                     sections.append(total_section)
 
-            # Only send alert if at least one bet is worth showing
             if sections:
                 message = header + "\n\n" + "\n\n".join(sections)
-                send_alert(message, telegram_token, telegram_chat_id)
+                send_alert(message)
 
         except Exception as e:
-            print(f"Error processing game {game['home_team']} vs {game['away_team']}: {e}")
-            
+            print(f"Error processing game {game.get('home_team')} vs {game.get('away_team')}: {e}")
+
+# === MAIN ENTRY ===
 if __name__ == '__main__':
-    process_games()
+    games = fetch_games()
+    if games:
+        process_games(games)
