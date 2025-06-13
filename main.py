@@ -13,7 +13,7 @@ API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
 SPORT = "baseball_mlb"
 REGIONS = "us"
 MARKETS = "h2h,spreads,totals"
-BOOKMAKER = "mybookie"
+BOOKMAKER = "draftkings"
 
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
@@ -49,13 +49,9 @@ def format_bet_section(bet_type, pick, odds, ev, imp, model_prob, edge, vig):
 
 # 🚀 Pull odds from OddsAPI
 def fetch_oddsapi_mlb_odds():
-    import requests
-    import os
+    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals&bookmakers=draftkings"
 
-    API_KEY = os.getenv("ODDS_API_KEY")
-    url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals&bookmakers=mybookieag"
-
-    response = requests.get(url)  # ✅ this must come BEFORE the print
+    response = requests.get(url)
     print("Status:", response.status_code, "Remaining:", response.headers.get('x-requests-remaining'))
 
     if response.status_code != 200:
@@ -70,29 +66,19 @@ def fetch_oddsapi_mlb_odds():
     return games
 
 # 🧠 Parse and send alerts
-from datetime import datetime, timezone
-import pytz
-
-# Set your timezone for CDT
-CDT = pytz.timezone("America/Chicago")
-
 def process_and_alert(games):
     for game in games:
         try:
-            # Fix ISO string with Z timezone by replacing with +00:00 for fromisoformat
             start = datetime.fromisoformat(game["commence_time"].replace("Z", "+00:00")).astimezone(CDT)
             home = game["home_team"]
             away = game["away_team"]
 
-            # Find MyBookie bookmaker odds only
-            mybookie = next((b for b in game["bookmakers"] if b["key"] == "mybookieag"), None)
-            if not mybookie:
-                print(f"❌ MyBookie odds not available for {away} vs {home}")
+            draftkings = next((b for b in game["bookmakers"] if b["key"] == "draftkings"), None)
+            if not draftkings:
+                print(f"❌ DraftKings odds not available for {away} vs {home}")
                 continue
 
-            # Create dictionary of markets for easy access
-            markets = {m["key"]: m for m in mybookie["markets"]}
-
+            markets = {m["key"]: m for m in draftkings["markets"]}
             h2h = markets.get("h2h", {}).get("outcomes", [])
             spreads = markets.get("spreads", {}).get("outcomes", [])
             totals = markets.get("totals", {}).get("outcomes", [])
@@ -101,12 +87,10 @@ def process_and_alert(games):
                 print(f"⚠️ Incomplete odds for {away} vs {home}")
                 continue
 
-            # Extract odds
             ml_odds = {o["name"]: o["price"] for o in h2h}
             spread_odds = spreads
             total_odds = totals
 
-            # Call your alert logic here with those odds
             send_alert(
                 home_team=home,
                 away_team=away,
@@ -118,7 +102,7 @@ def process_and_alert(games):
 
         except Exception as e:
             print(f"Error processing game {away} vs {home}: {e}")
-            
+
 # 🔁 Run
 if __name__ == "__main__":
     games = fetch_oddsapi_mlb_odds()
