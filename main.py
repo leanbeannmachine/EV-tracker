@@ -36,7 +36,7 @@ def fetch_bovada_mlb_odds():
     scraperapi_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}"
 
     try:
-        response = requests.get(proxy_url, timeout=20)
+        response = requests.get(scraperapi_url, timeout=20)
         response.raise_for_status()
         data = response.json()
         print(f"✅ Fetched {len(data)} events.")
