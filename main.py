@@ -32,19 +32,7 @@ import requests
 from datetime import datetime
 import pytz
 
-import requests
-from datetime import datetime
-import pytz
-
-import requests
-import json
-
-SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"  # Replace with your real key
-
-import requests
-import json
-
-SCRAPERAPI_KEY = "YOUR_SCRAPERAPI_KEY"  # Replace with your actual ScraperAPI key
+SCRAPERAPI_KEY = "a4494e58bed5da50547d3abb23cf658b"  # Replace with your actual ScraperAPI key
 
 def fetch_bovada_mlb_odds():
     print("📡 Fetching MLB odds using ScraperAPI...")
