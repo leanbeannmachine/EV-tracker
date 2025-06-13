@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 import pytz
 import math
 import telegram
@@ -56,7 +56,7 @@ def fetch_bovada_mlb_odds():
         teams = game["competitors"]
         home = next(t for t in teams if t["home"])
         away = next(t for t in teams if not t["home"])
-        start_time_utc = datetime.fromisoformat(game["startTime"].replace("Z", "+00:00"))
+        start_time_utc = datetime.fromtimestamp(game["startTime"] / 1000, tz=timezone.utc)
         start_time_cdt = start_time_utc.astimezone(CDT)
 
         display_groups = game.get("displayGroups", [])
