@@ -235,44 +235,26 @@ def process_games():
             # Format messages
             header = f"⚾ *{away}* @ *{home}*\n🕒 {commence_str}\n\n"
 
-            ml_section = format_bet_section(
-                'moneyline',
-                pick=best_ml['pick'],
-                odds_decimal=best_ml['odds'],
-                ev=best_ml['ev'],
-                implied_prob=best_ml['implied_prob'],
-                model_prob=best_ml['model_prob'],
-                edge=best_ml['edge'],
-                vig=best_ml['vig']
-            )
+sections = []
 
-            spread_section = format_bet_section(
-                'spread',
-                pick=best_spread['pick'],
-                odds_decimal=best_spread['odds'],
-                ev=best_spread['ev'],
-                implied_prob=best_spread['implied_prob'],
-                model_prob=best_spread['model_prob'],
-                edge=best_spread['edge'],
-                vig=best_spread['vig']
-            )
+ml_section = format_bet_section('moneyline', best_ml['pick'], best_ml['odds'], best_ml['ev'], best_ml['implied_prob'], best_ml['model_prob'], best_ml['edge'], best_ml['vig'])
+if ml_section:
+    sections.append(ml_section)
 
-            total_section = format_bet_section(
-                'total',
-                pick=best_total['pick'],
-                odds_decimal=best_total['odds'],
-                ev=best_total['ev'],
-                implied_prob=best_total['implied_prob'],
-                model_prob=best_total['model_prob'],
-                edge=best_total['edge'],
-                vig=best_total['vig']
-            )
+spread_section = format_bet_section('spread', best_spread['pick'], best_spread['odds'], best_spread['ev'], best_spread['implied_prob'], best_spread['model_prob'], best_spread['edge'], best_spread['vig'])
+if spread_section:
+    sections.append(spread_section)
 
-            if None in [ml_section, spread_section, total_section]:
-                continue
+total_section = format_bet_section('total', best_total['pick'], best_total['odds'], best_total['ev'], best_total['implied_prob'], best_total['model_prob'], best_total['edge'], best_total['vig'])
+if total_section:
+    sections.append(total_section)
 
-            message = header + ml_section + "\n\n" + spread_section + "\n\n" + total_section
-            send_alert(message)
+# Only send if at least one valid bet
+if not sections:
+    continue
+
+message = header + "\n\n".join(sections)
+send_alert(message)
 
         except Exception as e:
             print(f"Error processing game {game.get('away_team')} vs {game.get('home_team')}: {e}")
