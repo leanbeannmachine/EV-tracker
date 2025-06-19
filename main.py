@@ -8,7 +8,7 @@ from pytz import timezone
 # === ENVIRONMENT VARIABLES ===
 TELEGRAM_TOKEN = "7607490683:AAH5LZ3hHnTimx35du-UQanEQBXpt6otjcI"
 TELEGRAM_CHAT_ID = "964091254"
-API_KEY = "25af17e62a8d221b05b9b5c5a4911cdb"
+API_KEY = "b022ca047030f0b76006f74eeccf21a5"
 
 CENTRAL = timezone('US/Central')
 SPORT_KEY = 'baseball_mlb'
